@@ -1,0 +1,13 @@
+# Swift Package Manager build artifacts
+.build/
+.swiftpm/
+
+# Assembled app bundle (produced by scripts/build.sh)
+PasteBack.app/
+*.app/
+
+# macOS
+.DS_Store
+
+# Local diagnostic log (scripts/Logger writes to /tmp, but just in case)
+pasteback.log

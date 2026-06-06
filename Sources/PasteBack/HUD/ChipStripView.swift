@@ -1,48 +1,54 @@
 import SwiftUI
 
-/// Horizontal strip of action chips shown in the floating HUD. Stateful (copy)
-/// chips highlight when they're the current clipboard format; one-shot chips
-/// (Open Link, Reveal) just perform on tap.
+/// Horizontal strip of action chips shown in the floating HUD.
+/// - One-shot actions (Open Link, Save Contact, …) and the currently-active copy
+///   format are shown filled (accent).
+/// - Other copy formats are shown in a subtle neutral fill.
+/// Chips size to their full label (no clipping); the panel sizes to the strip.
 struct ChipStripView: View {
     @ObservedObject var viewModel: HUDViewModel
     @State private var isHovering = false
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            HStack(spacing: 6) {
-                ForEach(viewModel.actions) { action in
-                    ChipButton(
-                        action: action,
-                        isSelected: action.isStateful && action.id == viewModel.selectedID
-                    ) {
-                        viewModel.tap(action)
-                    }
-                }
+        chipBar
+            .overlay(alignment: .topTrailing) {
+                if isHovering { closeButton.offset(x: 5, y: -5) }
             }
-            .padding(8)
+            .padding(6)                 // room for the close button + drop shadow
+            .onHover { isHovering = $0 }
+    }
 
-            if isHovering {
-                Button {
-                    viewModel.dismiss()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .bold))
-                        .frame(width: 18, height: 18)
-                        .foregroundStyle(.secondary)
-                        .background(.regularMaterial, in: Circle())
-                        .overlay(Circle().strokeBorder(Color.white.opacity(0.18), lineWidth: 1))
+    private var chipBar: some View {
+        HStack(spacing: 6) {
+            ForEach(viewModel.actions) { action in
+                ChipButton(
+                    action: action,
+                    isSelected: action.isStateful && action.id == viewModel.selectedID
+                ) {
+                    viewModel.tap(action)
                 }
-                .buttonStyle(.plain)
-                .help("Close")
-                .offset(x: 7, y: -7)
             }
         }
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .fixedSize()                    // never compress/clip the chips
+        .padding(7)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
         )
-        .onHover { isHovering = $0 }
+    }
+
+    private var closeButton: some View {
+        Button { viewModel.dismiss() } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 9, weight: .bold))
+                .frame(width: 18, height: 18)
+                .foregroundStyle(.secondary)
+                .background(.regularMaterial, in: Circle())
+                .overlay(Circle().strokeBorder(Color.primary.opacity(0.12), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .help("Close")
     }
 }
 
@@ -55,28 +61,23 @@ private struct ChipButton: View {
         Button(action: onTap) {
             HStack(spacing: 5) {
                 Image(systemName: action.symbol)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 12, weight: .semibold))
                 Text(action.title)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 12.5, weight: .medium))
+                    .lineLimit(1)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .foregroundStyle(foreground)
+            .fixedSize(horizontal: true, vertical: false)   // full label, no clipping
+            .padding(.horizontal, 11)
+            .padding(.vertical, 7)
+            .foregroundStyle(isFilled ? Color.white : Color.primary)
             .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous).fill(background)
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(isFilled ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.quaternary))
             )
         }
         .buttonStyle(.plain)
     }
 
-    private var foreground: Color {
-        if isSelected { return .white }
-        return action.isStateful ? .primary : .white
-    }
-
-    private var background: Color {
-        if isSelected { return .accentColor }
-        // One-shot intent actions get a subtle accent tint to read as "do this".
-        return action.isStateful ? Color.secondary.opacity(0.15) : Color.accentColor.opacity(0.55)
-    }
+    /// Accent-filled when it's an action to perform, or the active copy format.
+    private var isFilled: Bool { !action.isStateful || isSelected }
 }

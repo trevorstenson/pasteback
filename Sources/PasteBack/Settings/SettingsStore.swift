@@ -43,7 +43,7 @@ final class SettingsStore: ObservableObject {
             Key.autoDismiss: 10.0,
             Key.captureMode: CaptureMode.native.rawValue,   // native is default (enables AX)
             Key.defaultRep: Representation.image.storageKey,
-            Key.hotkeyKeyCode: Int(kVK_ANSI_7),
+            Key.hotkeyKeyCode: Int(kVK_ANSI_C),
             Key.hotkeyModifiers: Int(controlKey | optionKey | cmdKey)
         ])
         defaultRepresentation = Representation(storageKey: defaults.string(forKey: Key.defaultRep) ?? "") ?? .image

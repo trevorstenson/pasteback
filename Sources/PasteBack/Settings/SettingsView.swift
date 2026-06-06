@@ -7,7 +7,18 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section("Capture") {
-                LabeledContent("Shortcut") {
+                // Pick a shortcut from a menu — no need to physically press the
+                // chord (helpful for one-handed use).
+                Picker("Shortcut", selection: $settings.hotkey) {
+                    ForEach(HotkeyManager.Hotkey.presets, id: \.hotkey) { preset in
+                        Text(preset.name).tag(preset.hotkey)
+                    }
+                    if !HotkeyManager.Hotkey.presets.contains(where: { $0.hotkey == settings.hotkey }) {
+                        Text("Custom (\(HotkeyFormatter.string(for: settings.hotkey)))")
+                            .tag(settings.hotkey)
+                    }
+                }
+                LabeledContent("Or record a custom shortcut") {
                     HotkeyRecorder(hotkey: $settings.hotkey).frame(width: 140, height: 24)
                 }
                 Picker("Capture mode", selection: $settings.captureMode) {

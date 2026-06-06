@@ -4,18 +4,32 @@ import Carbon.HIToolbox
 /// Registers a single global hotkey via Carbon's RegisterEventHotKey.
 /// No Accessibility permission required (unlike NSEvent global monitors).
 final class HotkeyManager {
-    struct Hotkey {
+    struct Hotkey: Equatable, Hashable {
         let keyCode: UInt32
         /// Carbon modifier masks (cmdKey, shiftKey, optionKey, controlKey).
         let modifiers: UInt32
 
-        /// Default: ⌃⌥⌘7. A 3-modifier default avoids the common ⌘⇧-number
-        /// shortcuts other apps tend to claim — and RegisterEventHotKey reports
-        /// success even when the combo is already owned, so conflicts are silent.
+        /// All three modifiers are on the left of the keyboard; pairing them with
+        /// a left-hand key keeps the whole chord one-hand (left) reachable. Three
+        /// modifiers also avoid the common ⌘⇧-number shortcuts other apps claim
+        /// (RegisterEventHotKey reports success even on conflict, so be safe).
+        static let leftHandModifiers = UInt32(controlKey | optionKey | cmdKey)
+
+        /// Default: ⌃⌥⌘C ("C" for Capture — left-hand, one-hand friendly).
         static let `default` = Hotkey(
-            keyCode: UInt32(kVK_ANSI_7),
-            modifiers: UInt32(controlKey | optionKey | cmdKey)
+            keyCode: UInt32(kVK_ANSI_C),
+            modifiers: leftHandModifiers
         )
+
+        /// Left-hand-friendly presets, selectable in Settings without having to
+        /// physically press the chord (handy for one-handed use).
+        static let presets: [(name: String, hotkey: Hotkey)] = [
+            ("⌃⌥⌘C  (Capture)", Hotkey(keyCode: UInt32(kVK_ANSI_C), modifiers: leftHandModifiers)),
+            ("⌃⌥⌘S  (Snip)",    Hotkey(keyCode: UInt32(kVK_ANSI_S), modifiers: leftHandModifiers)),
+            ("⌃⌥⌘D",            Hotkey(keyCode: UInt32(kVK_ANSI_D), modifiers: leftHandModifiers)),
+            ("⌃⌥⌘Z",            Hotkey(keyCode: UInt32(kVK_ANSI_Z), modifiers: leftHandModifiers)),
+            ("⌃⌥⌘1",            Hotkey(keyCode: UInt32(kVK_ANSI_1), modifiers: leftHandModifiers)),
+        ]
     }
 
     private var hotKeyRef: EventHotKeyRef?

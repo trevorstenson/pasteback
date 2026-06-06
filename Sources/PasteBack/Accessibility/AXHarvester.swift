@@ -18,6 +18,10 @@ final class AXHarvester {
         let entities: [DetectedEntity]
         /// The page/document URL (browser tab) — provenance, not a selected link.
         let pageURL: URL?
+        /// PID of the app that dominates the selection (provenance + intent).
+        let ownerPID: pid_t?
+        /// All apps that survived sliver-dropping (for diagnostics), dominant-first.
+        let ownerPIDs: [pid_t]
     }
 
     private let maxDepth = 80
@@ -25,34 +29,50 @@ final class AXHarvester {
     private let messagingTimeout: Float = 0.2   // seconds per AX call
 
     /// `rect` is in CoreGraphics top-left screen coordinates (same space AX uses).
-    func harvest(rect: CGRect, pid: pid_t) -> Result {
+    ///
+    /// We do NOT assume the active app owns the pixels. Instead we hit-test a grid
+    /// of points across the rect against the system-wide AX element to discover the
+    /// app(s) actually under the selection — so capturing a non-focused window, or
+    /// a region spanning two apps side by side, harvests the right tree(s).
+    /// `fallbackPID` is used only if hit-testing finds nothing (e.g. an app that
+    /// doesn't respond to position queries).
+    func harvest(rect: CGRect, fallbackPID: pid_t?) -> Result {
         guard AXIsProcessTrusted() else {
-            return Result(text: "", elements: [], entities: [], pageURL: nil)
+            return Result(text: "", elements: [], entities: [], pageURL: nil,
+                          ownerPID: nil, ownerPIDs: [])
         }
 
-        let app = AXUIElementCreateApplication(pid)
-        AXUIElementSetMessagingTimeout(app, messagingTimeout)
-        nudgeWebAccessibility(app)
-
+        let owners = owningPIDs(in: rect, fallback: fallbackPID)
         var collected: [AXElement] = []
-        var visited = 0
-        walk(app, rect: rect, depth: 0, visited: &visited, into: &collected)
+        for pid in owners.ordered {
+            let app = AXUIElementCreateApplication(pid)
+            AXUIElementSetMessagingTimeout(app, messagingTimeout)
+            nudgeWebAccessibility(app)
+            var visited = 0
+            walk(app, sourcePID: pid, rect: rect, depth: 0, visited: &visited, into: &collected)
+        }
+        let dominant = owners.dominant
 
         let text = assembleText(from: collected)
 
-        // The page container (AXWebArea/AXScrollArea) exposes the *page* URL with
-        // a frame spanning everything — that's provenance, not a selected link.
-        let pageURL = collected.first { $0.role == "AXWebArea" }?.url
+        // The page container (AXWebArea) exposes the *page* URL with a frame
+        // spanning everything — provenance, not a selected link. Prefer the
+        // dominant app's page.
+        let pageURL = (collected.first { $0.role == "AXWebArea" && $0.sourcePID == dominant }
+                       ?? collected.first { $0.role == "AXWebArea" })?.url
 
         // Ground-truth links: only real hyperlink elements (role AXLink). Drop
-        // icon-sized links (e.g. HN's ▲ upvote arrow) so "First URL" surfaces a
-        // real anchor, not a tiny control. Then order in reading order.
+        // icon-sized links (e.g. HN's ▲ upvote arrow). Rank the dominant app's
+        // links ahead of secondary apps' links, then reading order within each —
+        // so "First URL" comes from the window that owns most of the selection.
         let allLinks = collected.filter { $0.role == "AXLink" && $0.url != nil }
         let substantial = allLinks.filter { $0.frame.width >= 24 && $0.frame.height >= 10 }
-        let links = (substantial.isEmpty ? allLinks : substantial).sorted {
-            abs($0.frame.minY - $1.frame.minY) > 6
-                ? $0.frame.minY < $1.frame.minY
-                : $0.frame.minX < $1.frame.minX
+        let links = (substantial.isEmpty ? allLinks : substantial).sorted { a, b in
+            let aDom = a.sourcePID == dominant, bDom = b.sourcePID == dominant
+            if aDom != bDom { return aDom }
+            return abs(a.frame.minY - b.frame.minY) > 6
+                ? a.frame.minY < b.frame.minY
+                : a.frame.minX < b.frame.minX
         }
         let entities = links.map { element in
             DetectedEntity(
@@ -60,12 +80,72 @@ final class AXHarvester {
                 sourceText: element.text ?? element.url!.absoluteString,
                 boundingBox: element.frame, source: .ax)
         }
-        return Result(text: text, elements: collected, entities: entities, pageURL: pageURL)
+        return Result(text: text, elements: collected, entities: entities,
+                      pageURL: pageURL, ownerPID: dominant, ownerPIDs: owners.ordered)
+    }
+
+    // MARK: - Pixel-ownership discovery (coverage-weighted)
+
+    private struct Owners { let ordered: [pid_t]; let dominant: pid_t? }
+
+    /// Apps under the selection, weighted by how much of it they cover. Apps that
+    /// own less than `sliverThreshold` of the resolved sample points are dropped
+    /// as accidental edge clips. Survivors are ordered by coverage (dominant
+    /// first), with the center sample breaking ties.
+    private func owningPIDs(in rect: CGRect, fallback: pid_t?) -> Owners {
+        let system = AXUIElementCreateSystemWide()
+        let selfPID = ProcessInfo.processInfo.processIdentifier
+        let sliverThreshold = 0.15
+
+        var counts: [pid_t: Int] = [:]
+        var centerPID: pid_t?
+        var resolved = 0
+
+        for (index, point) in samplePoints(in: rect).enumerated() {
+            var element: AXUIElement?
+            guard AXUIElementCopyElementAtPosition(system, Float(point.x), Float(point.y), &element) == .success,
+                  let element else { continue }
+            var pid: pid_t = 0
+            guard AXUIElementGetPid(element, &pid) == .success, pid != 0, pid != selfPID else { continue }
+            counts[pid, default: 0] += 1
+            resolved += 1
+            if index == 0 { centerPID = pid }   // samplePoints[0] is the center
+        }
+
+        guard resolved > 0 else {
+            if let fallback, fallback != selfPID { return Owners(ordered: [fallback], dominant: fallback) }
+            return Owners(ordered: [], dominant: nil)
+        }
+
+        // Drop slivers (accidental edge clips); keep at least the top owner.
+        var survivors = counts.filter { Double($0.value) / Double(resolved) >= sliverThreshold }.map(\.key)
+        if survivors.isEmpty, let top = counts.max(by: { $0.value < $1.value })?.key { survivors = [top] }
+
+        let ordered = survivors.sorted { a, b in
+            if counts[a]! != counts[b]! { return counts[a]! > counts[b]! }
+            if a == centerPID { return true }
+            if b == centerPID { return false }
+            return a < b
+        }
+        return Owners(ordered: ordered, dominant: ordered.first)
+    }
+
+    /// Center first, then a 3×3 grid inset into the rect.
+    private func samplePoints(in rect: CGRect) -> [CGPoint] {
+        guard rect.width.isFinite, rect.height.isFinite else { return [] }
+        var points = [CGPoint(x: rect.midX, y: rect.midY)]
+        for fx in [0.2, 0.5, 0.8] {
+            for fy in [0.2, 0.5, 0.8] {
+                points.append(CGPoint(x: rect.minX + rect.width * fx,
+                                      y: rect.minY + rect.height * fy))
+            }
+        }
+        return points
     }
 
     // MARK: - Tree walk
 
-    private func walk(_ element: AXUIElement, rect: CGRect, depth: Int,
+    private func walk(_ element: AXUIElement, sourcePID: pid_t, rect: CGRect, depth: Int,
                       visited: inout Int, into collected: inout [AXElement]) {
         if depth > maxDepth || visited > maxElements { return }
         visited += 1
@@ -82,12 +162,14 @@ final class AXHarvester {
         if let frame, frame.intersects(rect), link != nil || kids.isEmpty {
             let text = bestText(of: element)
             if text != nil || link != nil {
-                collected.append(AXElement(role: role, text: text, url: link, frame: frame))
+                collected.append(AXElement(role: role, text: text, url: link,
+                                           frame: frame, sourcePID: sourcePID))
             }
         }
 
         for child in kids {
-            walk(child, rect: rect, depth: depth + 1, visited: &visited, into: &collected)
+            walk(child, sourcePID: sourcePID, rect: rect, depth: depth + 1,
+                 visited: &visited, into: &collected)
         }
     }
 

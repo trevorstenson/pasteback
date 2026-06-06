@@ -16,6 +16,9 @@ struct AXElement {
     let url: URL?
     /// Screen frame in CoreGraphics top-left coordinates.
     let frame: CGRect
+    /// PID of the app this element came from — lets us attribute/rank by app
+    /// when a selection spans more than one window.
+    let sourcePID: pid_t
 }
 
 enum EntityType: Equatable {

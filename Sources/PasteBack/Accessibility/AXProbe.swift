@@ -21,7 +21,7 @@ enum AXProbe {
         print("Frontmost: \(app.localizedName ?? "?") [\(app.bundleIdentifier ?? "?")] pid=\(app.processIdentifier)")
 
         // Infinite rect → no frame pruning; harvest the whole (bounded) tree.
-        let result = AXHarvester().harvest(rect: .infinite, pid: app.processIdentifier)
+        let result = AXHarvester().harvest(rect: .infinite, fallbackPID: app.processIdentifier)
 
         print("\nElements with content: \(result.elements.count)")
         print("Ground-truth URLs: \(result.entities.count)")

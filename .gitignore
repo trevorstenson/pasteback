@@ -11,3 +11,6 @@ PasteBack.app/
 
 # Local diagnostic log (scripts/Logger writes to /tmp, but just in case)
 pasteback.log
+
+# Local-only working-state notes (not for the public repo)
+STATE.md

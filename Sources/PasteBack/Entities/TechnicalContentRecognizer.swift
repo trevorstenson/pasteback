@@ -240,7 +240,7 @@ struct TechnicalContentRecognizer {
 
     private func isLikelyCodeStart(_ line: String) -> Bool {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
-        return regex(trimmed, #"^(pub\s+)?(async\s+)?(func|function|def|class|struct|enum|interface|protocol|impl|fn|let|var|const|import|from|package|module|using|namespace)\b"#) ||
+        return regex(trimmed, #"^(pub\s+)?(export\s+)?(async\s+)?(func|function|def|class|struct|enum|interface|protocol|impl|fn|type|let|var|const|import|from|package|module|using|namespace)\b"#) ||
                regex(trimmed, #"^(if|for|while|switch|guard|return|SELECT|WITH|INSERT|UPDATE|DELETE)\b"#) ||
                regex(trimmed, #"^(#include|<[A-Za-z][^>]*>|\{|\[)"#)
     }

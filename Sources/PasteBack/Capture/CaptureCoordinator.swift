@@ -10,6 +10,7 @@ final class CaptureCoordinator {
     private let axHarvester = AXHarvester()
     private let entityDetector = EntityDetector()
     private let technicalRecognizer = TechnicalContentRecognizer()
+    private let barcodeService = BarcodeService()
     private let writer = PasteboardWriter()
     private let settings = SettingsStore.shared
 
@@ -65,7 +66,10 @@ final class CaptureCoordinator {
                 source: source,
                 axElements: ax.elements
             )
-            let entities = self.entityDetector.detect(in: canonicalText, seed: ax.entities + technicalEntities)
+            // Image-based: decode any QR/barcodes in the captured pixels.
+            let barcodeEntities = self.barcodeService.entities(in: result.image)
+            let entities = self.entityDetector.detect(
+                in: canonicalText, seed: ax.entities + technicalEntities + barcodeEntities)
 
             let screenshot = CapturedScreenshot(
                 image: result.image,
@@ -85,7 +89,7 @@ final class CaptureCoordinator {
             axTrusted=\(PermissionService.hasAccessibility()) \
             ocrLines=\(ocrResult.lines.count) axElems=\(ax.elements.count) \
             axText=\(ax.text.count)chars ocrText=\(ocrResult.text.count)chars entities=\(entities.count) \
-            axLinks=\(ax.entities.count) ownerApps=\(ax.ownerPIDs.count) \
+            axLinks=\(ax.entities.count) ownerApps=\(ax.ownerPIDs.count) barcodes=\(barcodeEntities.count) \
             technical=\(technicalEntities.first.map { "\($0.type)" } ?? "nil") \
             pageURL=\(ax.pageURL?.absoluteString ?? "nil") \
             firstURL=\(entities.first { $0.type == .url }?.value ?? "nil")

@@ -23,6 +23,8 @@ final class SettingsStore: ObservableObject {
         static let regionSelectionStyle = "regionSelectionStyle"
         static let hotkeyKeyCode = "hotkeyKeyCode"
         static let hotkeyModifiers = "hotkeyModifiers"
+        static let settingsHotkeyKeyCode = "settingsHotkeyKeyCode"
+        static let settingsHotkeyModifiers = "settingsHotkeyModifiers"
     }
 
     static let didChange = Notification.Name("SettingsStore.didChange")
@@ -46,6 +48,13 @@ final class SettingsStore: ObservableObject {
             notify()
         }
     }
+    @Published var settingsHotkey: HotkeyManager.Hotkey {
+        didSet {
+            defaults.set(Int(settingsHotkey.keyCode), forKey: Key.settingsHotkeyKeyCode)
+            defaults.set(Int(settingsHotkey.modifiers), forKey: Key.settingsHotkeyModifiers)
+            notify()
+        }
+    }
 
     private init() {
         defaults.register(defaults: [
@@ -54,7 +63,9 @@ final class SettingsStore: ObservableObject {
             Key.regionSelectionStyle: RegionSelectionStyle.drag.rawValue,
             Key.defaultRep: Representation.image.storageKey,
             Key.hotkeyKeyCode: Int(kVK_ANSI_C),
-            Key.hotkeyModifiers: Int(controlKey | optionKey | cmdKey)
+            Key.hotkeyModifiers: Int(controlKey | optionKey | cmdKey),
+            Key.settingsHotkeyKeyCode: Int(kVK_ANSI_A),
+            Key.settingsHotkeyModifiers: Int(controlKey | optionKey | cmdKey)
         ])
         defaultRepresentation = Representation(storageKey: defaults.string(forKey: Key.defaultRep) ?? "") ?? .image
         autoDismissSeconds = defaults.double(forKey: Key.autoDismiss)
@@ -64,6 +75,9 @@ final class SettingsStore: ObservableObject {
         hotkey = HotkeyManager.Hotkey(
             keyCode: UInt32(defaults.integer(forKey: Key.hotkeyKeyCode)),
             modifiers: UInt32(defaults.integer(forKey: Key.hotkeyModifiers)))
+        settingsHotkey = HotkeyManager.Hotkey(
+            keyCode: UInt32(defaults.integer(forKey: Key.settingsHotkeyKeyCode)),
+            modifiers: UInt32(defaults.integer(forKey: Key.settingsHotkeyModifiers)))
     }
 
     private func notify() { NotificationCenter.default.post(name: Self.didChange, object: self) }

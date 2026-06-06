@@ -1,7 +1,8 @@
 import AppKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let hotkeyManager = HotkeyManager()
+    private let captureHotkeyManager = HotkeyManager(id: 1)
+    private let settingsHotkeyManager = HotkeyManager(id: 2)
     private let coordinator = CaptureCoordinator()
     private let hud = HUDPanelController()
     private let menuBar = MenuBarController()
@@ -45,7 +46,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func registerHotkey() {
-        hotkeyManager.register(settings.hotkey) { [weak self] in self?.triggerCapture() }
+        captureHotkeyManager.register(settings.hotkey) { [weak self] in self?.triggerCapture() }
+        settingsHotkeyManager.register(settings.settingsHotkey) { [weak self] in
+            self?.hud.dismiss()
+            self?.windows.showSettings()
+        }
     }
 
     private func triggerCapture() {

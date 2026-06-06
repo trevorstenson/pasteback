@@ -16,32 +16,50 @@ final class HotkeyManager {
         static let leftHandModifiers = UInt32(controlKey | optionKey | cmdKey)
 
         /// Default: ⌃⌥⌘C ("C" for Capture — left-hand, one-hand friendly).
-        static let `default` = Hotkey(
+        static let defaultCapture = Hotkey(
             keyCode: UInt32(kVK_ANSI_C),
+            modifiers: leftHandModifiers
+        )
+
+        /// Default: ⌃⌥⌘A (left-hand reachable, for opening app settings).
+        static let defaultSettings = Hotkey(
+            keyCode: UInt32(kVK_ANSI_A),
             modifiers: leftHandModifiers
         )
 
         /// Left-hand-friendly presets, selectable in Settings without having to
         /// physically press the chord (handy for one-handed use).
-        static let presets: [(name: String, hotkey: Hotkey)] = [
+        static let capturePresets: [(name: String, hotkey: Hotkey)] = [
             ("⌃⌥⌘C  (Capture)", Hotkey(keyCode: UInt32(kVK_ANSI_C), modifiers: leftHandModifiers)),
             ("⌃⌥⌘S  (Snip)",    Hotkey(keyCode: UInt32(kVK_ANSI_S), modifiers: leftHandModifiers)),
             ("⌃⌥⌘D",            Hotkey(keyCode: UInt32(kVK_ANSI_D), modifiers: leftHandModifiers)),
             ("⌃⌥⌘Z",            Hotkey(keyCode: UInt32(kVK_ANSI_Z), modifiers: leftHandModifiers)),
             ("⌃⌥⌘1",            Hotkey(keyCode: UInt32(kVK_ANSI_1), modifiers: leftHandModifiers)),
         ]
+
+        static let settingsPresets: [(name: String, hotkey: Hotkey)] = [
+            ("⌃⌥⌘A  (Settings)", Hotkey(keyCode: UInt32(kVK_ANSI_A), modifiers: leftHandModifiers)),
+            ("⌃⌥⌘P  (Preferences)", Hotkey(keyCode: UInt32(kVK_ANSI_P), modifiers: leftHandModifiers)),
+            ("⌃⌥⌘O", Hotkey(keyCode: UInt32(kVK_ANSI_O), modifiers: leftHandModifiers)),
+            ("⌃⌥⌘2", Hotkey(keyCode: UInt32(kVK_ANSI_2), modifiers: leftHandModifiers)),
+        ]
     }
 
     private var hotKeyRef: EventHotKeyRef?
     private var eventHandler: EventHandlerRef?
     private var onPressed: (() -> Void)?
+    private let id: UInt32
 
     private let signature: OSType = {
         let chars: [UInt8] = Array("PBhk".utf8)
         return chars.reduce(OSType(0)) { ($0 << 8) + OSType($1) }
     }()
 
-    func register(_ hotkey: Hotkey = .default, onPressed: @escaping () -> Void) {
+    init(id: UInt32 = 1) {
+        self.id = id
+    }
+
+    func register(_ hotkey: Hotkey = .defaultCapture, onPressed: @escaping () -> Void) {
         unregister()
         self.onPressed = onPressed
 
@@ -52,16 +70,31 @@ final class HotkeyManager {
         let selfPtr = Unmanaged.passUnretained(self).toOpaque()
         InstallEventHandler(
             GetApplicationEventTarget(),
-            { _, _, userData -> OSStatus in
+            { _, event, userData -> OSStatus in
                 guard let userData else { return noErr }
                 let manager = Unmanaged<HotkeyManager>.fromOpaque(userData).takeUnretainedValue()
+                var hotKeyID = EventHotKeyID()
+                let status = GetEventParameter(
+                    event,
+                    EventParamName(kEventParamDirectObject),
+                    EventParamType(typeEventHotKeyID),
+                    nil,
+                    MemoryLayout<EventHotKeyID>.size,
+                    nil,
+                    &hotKeyID
+                )
+                guard status == noErr,
+                      hotKeyID.signature == manager.signature,
+                      hotKeyID.id == manager.id else {
+                    return OSStatus(eventNotHandledErr)
+                }
                 DispatchQueue.main.async { manager.onPressed?() }
                 return noErr
             },
             1, &eventType, selfPtr, &eventHandler
         )
 
-        let hotKeyID = EventHotKeyID(signature: signature, id: 1)
+        let hotKeyID = EventHotKeyID(signature: signature, id: id)
         RegisterEventHotKey(
             hotkey.keyCode, hotkey.modifiers, hotKeyID,
             GetApplicationEventTarget(), 0, &hotKeyRef

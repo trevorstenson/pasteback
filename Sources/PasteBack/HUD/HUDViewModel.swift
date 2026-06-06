@@ -8,6 +8,8 @@ final class HUDViewModel: ObservableObject {
 
     /// Fired after any chip tap (used to reset the auto-dismiss timer).
     var onTap: (() -> Void)?
+    /// Fired when the user explicitly closes the HUD.
+    var onDismiss: (() -> Void)?
 
     func update(actions: [CaptureAction], selectedID: String?) {
         self.actions = actions
@@ -18,5 +20,9 @@ final class HUDViewModel: ObservableObject {
         if action.isStateful { selectedID = action.id }
         action.perform()
         onTap?()
+    }
+
+    func dismiss() {
+        onDismiss?()
     }
 }

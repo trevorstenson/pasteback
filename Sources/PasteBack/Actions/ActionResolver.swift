@@ -7,26 +7,82 @@ import AppKit
 struct ActionResolver {
 
     private let builder = RepresentationBuilder()
+    private let calendarBuilder = CalendarEventBuilder()
+    private let mapsBuilder = MapsLinkBuilder()
+    private let contactExtractor = ContactExtractor()
 
     func resolve(_ capture: CapturedScreenshot, copy: @escaping (Representation) -> Void) -> [CaptureAction] {
         let intent = intentActions(for: capture)
         let copies = copyActions(for: capture, copy: copy)
 
-        // A short selection is "about" a single entity → lead with the intent action.
+        // Lead with intent when the selection is "about" one entity (short) OR a
+        // strong composite (QR / contact) is present — those are clearly the goal
+        // even in a longer selection.
         let isFocused = capture.canonicalText.count <= 80
-        return (isFocused && !intent.isEmpty) ? intent + copies : copies + intent
+        let leadsWithStrong = intent.contains {
+            $0.id == "qr-open" || $0.id == "qr-copy" || $0.id == "save-contact"
+        }
+        return ((isFocused || leadsWithStrong) && !intent.isEmpty) ? intent + copies : copies + intent
     }
 
-    // MARK: - Side-effecting (intent) actions
+    // MARK: - Side-effecting (intent) actions  (priority order)
 
     private func intentActions(for capture: CapturedScreenshot) -> [CaptureAction] {
         var actions: [CaptureAction] = []
 
+        // QR / barcode: open if it's a link, else copy the decoded payload.
+        if let payload = barcodeValue(capture) {
+            if let url = httpURL(payload) {
+                actions.append(CaptureAction(
+                    id: "qr-open", title: "Open QR Link", symbol: "qrcode",
+                    isStateful: false) { NSWorkspace.shared.open(url) })
+            } else {
+                actions.append(CaptureAction(
+                    id: "qr-copy", title: "Copy QR", symbol: "qrcode",
+                    isStateful: false) {
+                        let pb = NSPasteboard.general
+                        pb.clearContents()
+                        pb.setString(payload, forType: .string)
+                    })
+            }
+        }
+
+        // Contact (signature / business card) → vCard.
+        if let contact = contactExtractor.extract(from: capture) {
+            actions.append(CaptureAction(
+                id: "save-contact", title: "Save Contact", symbol: "person.crop.circle.badge.plus",
+                isStateful: false) {
+                    if let url = contactExtractor.vCardFileURL(for: contact) {
+                        NSWorkspace.shared.open(url)
+                    }
+                })
+        }
+
+        // Date → calendar event.
+        if firstEntity(.date, capture) != nil {
+            actions.append(CaptureAction(
+                id: "add-calendar", title: "Add to Calendar", symbol: "calendar.badge.plus",
+                isStateful: false) {
+                    if let url = calendarBuilder.icsFileURL(for: capture) {
+                        NSWorkspace.shared.open(url)
+                    }
+                })
+        }
+
+        // Address → Maps.
+        if let address = firstEntity(.address, capture), let url = mapsBuilder.url(for: address) {
+            actions.append(CaptureAction(
+                id: "open-maps", title: "Open in Maps", symbol: "map",
+                isStateful: false) { NSWorkspace.shared.open(url) })
+        }
+
+        // URL → open.
         if let value = firstEntity(.url, capture), let url = URL(string: value) {
             actions.append(CaptureAction(
                 id: "open-url", title: "Open Link", symbol: "arrow.up.forward.app",
                 isStateful: false) { NSWorkspace.shared.open(url) })
         }
+        // File path → reveal.
         if let path = firstEntity(.filePath, capture) {
             let fileURL = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
             actions.append(CaptureAction(
@@ -36,6 +92,17 @@ struct ActionResolver {
                 })
         }
         return actions
+    }
+
+    private func barcodeValue(_ capture: CapturedScreenshot) -> String? {
+        capture.entities.first { if case .barcode = $0.type { return true }; return false }?.value
+    }
+
+    private func httpURL(_ string: String) -> URL? {
+        guard let url = URL(string: string),
+              let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https"
+        else { return nil }
+        return url
     }
 
     // MARK: - Copy / representation actions

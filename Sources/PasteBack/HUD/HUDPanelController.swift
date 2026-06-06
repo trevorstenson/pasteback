@@ -14,6 +14,7 @@ final class HUDPanelController {
 
     init() {
         viewModel.onTap = { [weak self] in self?.restartDismissTimer() }
+        viewModel.onDismiss = { [weak self] in self?.dismiss() }
     }
 
     func show(actions: [CaptureAction], selectedID: String?) {

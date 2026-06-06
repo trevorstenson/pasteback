@@ -33,6 +33,7 @@ enum EntityType: Equatable {
     case hexColor
     case codeBlock(language: String?)
     case stackTrace
+    case barcode(symbology: String?)   // QR / barcode payload decoded via Vision
 }
 
 /// Where an entity's value came from — AX is ground truth and wins over OCR.

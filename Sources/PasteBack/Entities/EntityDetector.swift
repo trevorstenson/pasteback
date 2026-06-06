@@ -46,7 +46,10 @@ struct EntityDetector {
                     out.append(DetectedEntity(type: .address, value: source, sourceText: source))
                 }
             case .date:
-                out.append(DetectedEntity(type: .date, value: source, sourceText: source))
+                // Canonicalize to ISO-8601 so downstream (calendar) has a
+                // parseable value; keep the raw matched text in sourceText.
+                let value = match.date.map { ISO8601DateFormatter().string(from: $0) } ?? source
+                out.append(DetectedEntity(type: .date, value: value, sourceText: source))
             default: break
             }
         }

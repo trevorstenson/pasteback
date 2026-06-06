@@ -53,7 +53,7 @@ struct HotkeyRecorder: NSViewRepresentable {
     }
 
     final class RecorderButton: NSButton {
-        var hotkey = HotkeyManager.Hotkey.default
+        var hotkey = HotkeyManager.Hotkey.defaultCapture
         var onRecord: ((HotkeyManager.Hotkey) -> Void)?
         private var recording = false
 

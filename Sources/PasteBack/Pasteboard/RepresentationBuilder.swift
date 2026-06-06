@@ -75,8 +75,9 @@ struct RepresentationBuilder {
         case .firstPhone:
             return firstValue(.phone, capture).map { Payload(type: .string, data: Data($0.utf8)) }
         case .codeBlock:
-            guard hasCode(capture) else { return nil }
-            return Payload(type: .string, data: Data("```\n\(text)\n```".utf8))
+            guard let code = codeEntity(capture) else { return nil }
+            let language = codeLanguage(code) ?? ""
+            return Payload(type: .string, data: Data("```\(language)\n\(code.value)\n```".utf8))
         }
     }
 
@@ -89,11 +90,22 @@ struct RepresentationBuilder {
         capture.entities.first { $0.type == type }?.value
     }
     private func hasCode(_ capture: CapturedScreenshot) -> Bool {
-        capture.entities.contains {
-            if case .stackTrace = $0.type { return true }
+        codeEntity(capture) != nil
+    }
+    private func codeEntity(_ capture: CapturedScreenshot) -> DetectedEntity? {
+        capture.entities.first {
             if case .codeBlock = $0.type { return true }
             return false
+        } ?? capture.entities.first {
+            if case .stackTrace = $0.type { return true }
+            return false
         }
+    }
+    private func codeLanguage(_ entity: DetectedEntity) -> String? {
+        if case .codeBlock(let language) = entity.type {
+            return language
+        }
+        return nil
     }
 
     // MARK: - Rich text

@@ -9,6 +9,7 @@ final class CaptureCoordinator {
     private let ocr = OCRService()
     private let axHarvester = AXHarvester()
     private let entityDetector = EntityDetector()
+    private let technicalRecognizer = TechnicalContentRecognizer()
     private let writer = PasteboardWriter()
     private let settings = SettingsStore.shared
 
@@ -42,9 +43,6 @@ final class CaptureCoordinator {
             // Enrichment: AX harvest (M1 fills this in; empty for now).
             let ax = self.harvestAX(result)
 
-            let canonicalText = ax.text.isEmpty ? ocrResult.text : ax.text
-            let entities = self.entityDetector.detect(in: canonicalText, seed: ax.entities)
-
             // Provenance: prefer the app actually under the selected pixels
             // (discovered by AX hit-test), not the frontmost app. Enrich with the
             // page URL recovered from AX.
@@ -57,6 +55,14 @@ final class CaptureCoordinator {
                 source = CaptureSource(appName: source.appName, bundleIdentifier: source.bundleIdentifier,
                                        pid: source.pid, url: pageURL)
             }
+
+            let canonicalText = ax.text.isEmpty ? ocrResult.text : ax.text
+            let technicalEntities = self.technicalRecognizer.entities(
+                in: canonicalText,
+                source: source,
+                axElements: ax.elements
+            )
+            let entities = self.entityDetector.detect(in: canonicalText, seed: ax.entities + technicalEntities)
 
             let screenshot = CapturedScreenshot(
                 image: result.image,
@@ -77,6 +83,7 @@ final class CaptureCoordinator {
             ocrLines=\(ocrResult.lines.count) axElems=\(ax.elements.count) \
             axText=\(ax.text.count)chars ocrText=\(ocrResult.text.count)chars entities=\(entities.count) \
             axLinks=\(ax.entities.count) ownerApps=\(ax.ownerPIDs.count) \
+            technical=\(technicalEntities.first.map { "\($0.type)" } ?? "nil") \
             pageURL=\(ax.pageURL?.absoluteString ?? "nil") \
             firstURL=\(entities.first { $0.type == .url }?.value ?? "nil")
             """)

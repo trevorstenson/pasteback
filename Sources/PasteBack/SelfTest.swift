@@ -68,6 +68,72 @@ enum SelfTest {
         check(UserDefaults.standard.double(forKey: "autoDismissSeconds") == 7,
               "settings persist to UserDefaults")
 
+        let recognizer = TechnicalContentRecognizer()
+        let swiftSample = """
+        12 | import Foundation
+        13 | struct User {
+        14 |     let id: UUID
+        15 |     func displayName() -> String {
+        16 |         return "User \\(id.uuidString)"
+        17 |     }
+        18 | }
+        """
+        let swiftRecognition = recognizer.recognize(in: swiftSample, source: CaptureSource(
+            appName: "Xcode", bundleIdentifier: "com.apple.dt.Xcode", pid: nil, url: nil))
+        check(swiftRecognition?.language == "swift", "technical recognizer identifies Swift")
+        check(swiftRecognition?.normalizedText.contains("12 |") == false,
+              "technical recognizer strips line gutters")
+        let codeEntities = recognizer.entities(in: swiftSample, source: CaptureSource(
+            appName: "Xcode", bundleIdentifier: "com.apple.dt.Xcode", pid: nil, url: nil), axElements: [])
+        let codeCapture = CapturedScreenshot(image: image, ocrText: swiftSample, entities: codeEntities)
+        let codePayload = RepresentationBuilder().payload(for: .codeBlock, from: codeCapture)
+        let codePaste = codePayload.flatMap { String(data: $0.data, encoding: .utf8) } ?? ""
+        check(RepresentationBuilder().availableRepresentations(for: codeCapture).contains(.codeBlock),
+              "Code chip offered for recognized code")
+        check(codePaste.hasPrefix("```swift\n") && !codePaste.contains("12 |"),
+              "Code chip uses language and normalized text")
+
+        let rustWithChrome = """
+        PasteBack Code Detection Fixture
+        New Tab Rust
+        pub fn normalize(input: &str) -> String {
+            input
+                .lines()
+                .map(str::trim_end)
+                .filter(|line| !line.is_empty())
+                .collect::<Vec<_>>()
+                .join("\\n")
+        }
+        """
+        let rustRecognition = recognizer.recognize(in: rustWithChrome, source: CaptureSource(
+            appName: "Safari", bundleIdentifier: "com.apple.Safari", pid: nil, url: nil))
+        check(rustRecognition?.language == "rust", "technical recognizer identifies Rust with page chrome")
+        check(rustRecognition?.normalizedText.hasPrefix("pub fn normalize") == true &&
+              !rustRecognition!.normalizedText.contains("PasteBack Code Detection Fixture"),
+              "technical recognizer drops surrounding page chrome")
+
+        let jsonRecognition = recognizer.recognize(
+            in: #"{"name":"PasteBack","enabled":true,"count":3}"#,
+            source: CaptureSource(appName: nil, bundleIdentifier: nil, pid: nil, url: nil))
+        check(jsonRecognition?.language == "json", "technical recognizer identifies JSON")
+
+        let commandRecognition = recognizer.recognize(
+            in: "$ git checkout -b feature/code-recognizer",
+            source: CaptureSource(appName: "Terminal", bundleIdentifier: "com.apple.Terminal", pid: nil, url: nil))
+        check(commandRecognition?.language == "bash", "technical recognizer identifies shell commands")
+        check(commandRecognition?.normalizedText.hasPrefix("git checkout") == true,
+              "technical recognizer strips shell prompts")
+
+        let stackRecognition = recognizer.recognize(
+            in: "Traceback (most recent call last):\n  File \"app.py\", line 10, in <module>\nValueError: bad",
+            source: CaptureSource(appName: nil, bundleIdentifier: nil, pid: nil, url: nil))
+        check(stackRecognition?.kind == .stackTrace, "technical recognizer identifies stack traces")
+
+        let proseRecognition = recognizer.recognize(
+            in: "This is a regular paragraph about a project plan. It has several sentences but no code.",
+            source: CaptureSource(appName: nil, bundleIdentifier: nil, pid: nil, url: nil))
+        check(proseRecognition == nil, "technical recognizer rejects ordinary prose")
+
         print(failures.isEmpty ? "\nSELFTEST PASS" : "\nSELFTEST FAIL (\(failures.count))")
         exit(failures.isEmpty ? 0 : 1)
     }

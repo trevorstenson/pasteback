@@ -21,6 +21,14 @@ final class HUDPanelController {
         viewModel.update(actions: actions, selectedID: selectedID)
         let panel = panel ?? makePanel()
         self.panel = panel
+
+        // Attach a FRESH hosting view each time so its intrinsic size reflects the
+        // current chip set synchronously — reusing one lags a frame and clips the
+        // right edge when a capture is wider than the previous one.
+        let hosting = NSHostingView(rootView: ChipStripView(viewModel: viewModel))
+        hosting.sizingOptions = [.intrinsicContentSize]
+        panel.contentView = hosting
+
         positionPanel(panel)
         panel.orderFrontRegardless()
         restartDismissTimer()
@@ -45,10 +53,7 @@ final class HUDPanelController {
         // Drag the strip's background (anywhere but a chip) to reposition it.
         panel.isMovableByWindowBackground = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-        let hosting = NSHostingView(rootView: ChipStripView(viewModel: viewModel))
-        // Auto-size to the SwiftUI content so chips never get compressed/clipped.
-        hosting.sizingOptions = [.intrinsicContentSize]
-        panel.contentView = hosting
+        // contentView is attached per-show() with a fresh hosting view.
 
         // Keep the HUD alive while the user is dragging/positioning it (each new
         // capture still re-anchors near the cursor).

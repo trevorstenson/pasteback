@@ -1,61 +1,46 @@
-# Paste-Back (v2)
+# Paste-Back
 
 Select any region of your screen and get the **usable** form of what's in it —
-real clickable links, exact text, the data behind it — not a flat picture.
-"Anything you can see, you can use."
+real clickable links, exact text, the data behind it — instead of a flat picture.
+**"Anything you can see, you can use."**
 
-Vision & strategy: **`project2.md`** (source of truth). This README covers the build.
+## What it does
 
-## Status
+A screenshot throws away everything the screen knew: links become pixels,
+selectable text becomes an image, structured data becomes a flat grid. Paste-Back
+*de-flattens* a region of your screen — it reconstructs the real, structured
+content behind the pixels and puts it on your clipboard, ready to use.
 
-| Milestone | State |
-|-----------|-------|
-| M0 — Foundation (v2-first) | ✅ built + self-test green |
-| M1 — AX ground-truth harvest (the moat) | ✅ built; manual AX acceptance pending |
-| M2 — Action chips + intent routing | ⬜ next |
-| M3 — Download-video action | ⬜ roadmap |
-| M4 — Shared interactive asset + provenance | ⬜ roadmap |
+Lasso a region and you get back:
 
-## Architecture
+- **Real hyperlinks** — the actual destination, not the visible text
+- **Exact, copyable text** — selectable even from apps that won't let you select
+- **Detected entities** — URLs, emails, phone numbers, addresses, dates, code, file paths
+- **The image itself**, when a picture is what you want
 
-```
-Native overlay capture (rect-aware) → CGImage + captureRect + sourceApp
-   ├─ OCRService (Vision)        floor — always runs
-   └─ AXHarvester (rect ∩ tree)  enrichment — real hrefs/text/structure when available
-        → merge (AX preferred) → CapturedScreenshot → entities → clipboard / HUD chips
-```
+A floating chip strip lets you act on the capture right away — open a link,
+reveal a file, or copy any representation.
 
-Key idea: **AX is enrichment over an OCR floor.** When the app exposes an
-Accessibility tree (native, web, most Electron), we recover ground-truth links and
-exact text; when it doesn't (Figma canvas, games, video, remote desktop), we fall
-back to OCR silently. `CapturedScreenshot.canonicalText` prefers AX text over OCR.
+## How it works
 
-## Build & run (no Xcode required)
+Paste-Back reads more than pixels. When an app exposes an Accessibility tree
+(native apps, browsers, most Electron apps), it recovers ground-truth links and
+exact text straight from the app. When it can't (canvas apps, games, video,
+remote desktop), it falls back to on-device OCR.
 
-```sh
-./scripts/build.sh        # SPM build + assemble PasteBack.app
-./scripts/run.sh          # build + launch
-```
+OCR is the floor that always runs, so you always get a result; Accessibility is
+enrichment layered on top, so you get a *better* result whenever the structure is
+available.
 
-Menu-bar agent (no Dock icon). Default hotkey **⌃⌥⌘7** (rebindable in Settings).
-Two scary permissions: **Screen Recording** (native capture) and **Accessibility**
-(AX harvest). Both degrade gracefully — decline Accessibility and you get OCR-only.
+## Getting started
 
-For stable permission grants across rebuilds, create a self-signed `PasteBack Dev`
-code-signing cert (see `scripts/build.sh` header); else it ad-hoc signs.
+Paste-Back runs as a menu-bar app (no Dock icon). Press the capture hotkey
+(default **⌃⌥⌘7**, rebindable in Settings), drag to select a region, and the
+result lands on your clipboard.
 
-## Verification
+It uses two macOS permissions:
 
-- **Headless:** `"$(swift build --show-bin-path)/PasteBack" --selftest`
-  (OCR → entity → pasteboard; AX-preference; settings persistence).
-- **AX coverage probe:** `… --axprobe` — focus an app within 4s; prints the roles,
-  ground-truth URLs, and text it recovers. Measures coverage on your real apps.
-- **M1 acceptance (manual):** in Safari/Chrome, lasso a link whose visible text is
-  truncated/styled → click **First URL** → paste → it should be the *exact* href,
-  not the visible text. Then lasso something in Figma/a video → confirm it silently
-  falls back to OCR.
+- **Screen Recording** — to capture the selected region
+- **Accessibility** — to recover real links and exact text
 
-## Source layout
-
-`Sources/PasteBack/{main, AppDelegate, Models/, Capture/, OCR/, Accessibility/,
-Entities/, Pasteboard/, HUD/, Settings/, Onboarding/, MenuBar/}`.
+Both degrade gracefully: decline Accessibility and you still get OCR-based capture.

@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Paste-Back — Primitive Test Page</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    max-width: 820px; margin: 0 auto; padding: 32px 24px 96px; color: #1d1d1f;
+    background: #fafafa;
+  }
+  @media (prefers-color-scheme: dark) { body { background:#1c1c1e; color:#f2f2f7; } .card{background:#2c2c2e;border-color:#3a3a3c;} }
+  h1 { font-size: 30px; margin-bottom: 4px; }
+  .sub { color:#86868b; margin-top:0; }
+  .card {
+    background:#fff; border:1px solid #e5e5e7; border-radius:14px;
+    padding:20px 22px; margin:18px 0; box-shadow:0 1px 3px rgba(0,0,0,.04);
+  }
+  .card h2 { font-size:18px; margin:0 0 4px; }
+  .hint { color:#86868b; font-size:13px; margin:0 0 14px; }
+  .hint b { color:#0071e3; }
+  .sig { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size:14px; line-height:1.7; }
+  pre { background:#f5f5f7; border-radius:10px; padding:14px 16px; overflow:auto; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size:13px; }
+  @media (prefers-color-scheme: dark){ pre{background:#000;} }
+  a { color:#0071e3; }
+  .big { font-size:19px; font-weight:600; }
+  .codes { display:flex; gap:28px; flex-wrap:wrap; align-items:center; }
+  .codes figure { margin:0; text-align:center; }
+  .codes img { background:#fff; padding:10px; border-radius:10px; }
+  .codes figcaption { font-size:12px; color:#86868b; margin-top:6px; }
+  .row { margin:6px 0; }
+  .tag { display:inline-block; font-size:11px; font-weight:700; letter-spacing:.04em;
+         text-transform:uppercase; color:#0071e3; background:#0071e310; padding:3px 8px; border-radius:6px; }
+</style>
+</head>
+<body>
+  <h1>Paste-Back Test Page</h1>
+  <p class="sub">Lasso each block with <b>⌃⌥⌘C</b> and check the expected chip appears.</p>
+
+  <div class="card">
+    <span class="tag">📅 Date → Calendar</span>
+    <h2>Quarterly Planning Sync</h2>
+    <p class="hint">Lasso the line below → expect <b>Add to Calendar</b>.</p>
+    <p class="big">Thursday, June 18, 2026 from 3:00 PM to 4:00 PM PDT</p>
+    <p class="row">Location: Northwind Labs, 1600 Amphitheatre Parkway, Mountain View, CA</p>
+  </div>
+
+  <div class="card">
+    <span class="tag">🗺️ Address → Maps</span>
+    <h2>Office address</h2>
+    <p class="hint">Lasso the address → expect <b>Open in Maps</b>.</p>
+    <p class="big">1600 Amphitheatre Parkway, Mountain View, CA 94043</p>
+    <p class="row">Second address to try: 1 Ferry Building, San Francisco, CA 94111</p>
+  </div>
+
+  <div class="card">
+    <span class="tag">👤 Contact → vCard</span>
+    <h2>Email signature</h2>
+    <p class="hint">Lasso the whole signature → expect <b>Save Contact</b>.</p>
+    <div class="sig">
+      Jordan Rivera<br>
+      Staff Product Designer, Northwind Labs<br>
+      jordan.rivera@northwindlabs.com<br>
+      +1 (415) 555-0182<br>
+      northwindlabs.com
+    </div>
+  </div>
+
+  <div class="card">
+    <span class="tag">🔳 QR → Open / Copy</span>
+    <h2>QR codes</h2>
+    <p class="hint">Lasso a QR (tightly) → URL one gives <b>Open QR Link</b>; Wi-Fi one gives <b>Copy QR</b>.</p>
+    <div class="codes">
+      <figure>
+        <img src="qr-url.png" width="150" height="150" alt="QR: URL">
+        <figcaption>Links to pasteback.app/welcome</figcaption>
+      </figure>
+      <figure>
+        <img src="qr-wifi.png" width="150" height="150" alt="QR: Wi-Fi">
+        <figcaption>Wi-Fi: PasteBack Cafe</figcaption>
+      </figure>
+    </div>
+  </div>
+
+  <div class="card">
+    <span class="tag">📊 Barcode → Copy</span>
+    <h2>Shipment barcode (Code 128)</h2>
+    <p class="hint">Lasso the barcode → expect <b>Copy QR</b> with the decoded number.</p>
+    <div class="codes">
+      <figure>
+        <img src="barcode.png" width="320" height="90" alt="Code128 barcode">
+        <figcaption>Tracking: 1Z999AA10123456784</figcaption>
+      </figure>
+    </div>
+  </div>
+
+  <div class="card">
+    <span class="tag">💻 Code → Code chip</span>
+    <h2>Source snippet</h2>
+    <p class="hint">Lasso the code → expect a <b>Code</b> copy chip (fenced, language-tagged).</p>
+<pre>func greet(_ name: String) -> String {
+    guard !name.isEmpty else { return "Hello, world!" }
+    return "Hello, \(name)!"
+}</pre>
+  </div>
+
+  <div class="card">
+    <span class="tag">🔗 Links & entities</span>
+    <h2>Mixed entities</h2>
+    <p class="hint">Lasso a link → <b>Open Link</b> / <b>First URL</b> (real href, not the visible text).</p>
+    <p class="row">Read the <a href="https://www.apple.com/macos/sonoma/very/long/path?ref=pasteback&utm=test">release notes →</a></p>
+    <p class="row">Ping us at hello@pasteback.app or call +1 (212) 555-0143</p>
+    <p class="row">Ticket: ENG-4821 · Commit: 9f3a1c2 · Brand color: #0071e3</p>
+  </div>
+</body>
+</html>

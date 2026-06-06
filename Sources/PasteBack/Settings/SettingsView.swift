@@ -25,6 +25,10 @@ struct SettingsView: View {
                     Text("In-app overlay (enables link/text recovery)").tag(SettingsStore.CaptureMode.native)
                     Text("System screenshot tool (OCR only)").tag(SettingsStore.CaptureMode.shellOut)
                 }
+                Picker("Region selection", selection: $settings.regionSelectionStyle) {
+                    Text("Drag rectangle").tag(SettingsStore.RegionSelectionStyle.drag)
+                    Text("Two-click rectangle").tag(SettingsStore.RegionSelectionStyle.twoClick)
+                }
             }
             Section("Paste") {
                 Picker("Default representation", selection: $settings.defaultRepresentation) {
@@ -39,6 +43,6 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 440, height: 340)
+        .frame(width: 460, height: 380)
     }
 }

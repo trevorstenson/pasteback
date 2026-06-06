@@ -24,21 +24,25 @@ final class CaptureService {
 
     func captureRegion(
         mode: SettingsStore.CaptureMode,
+        selectionStyle: SettingsStore.RegionSelectionStyle,
         completion: @escaping (Result<CaptureResult, Error>) -> Void
     ) {
         switch mode {
-        case .native:   captureViaOverlay(completion: completion)
+        case .native:   captureViaOverlay(selectionStyle: selectionStyle, completion: completion)
         case .shellOut: captureViaShellOut(completion: completion)
         }
     }
 
     // MARK: - Native overlay
 
-    private func captureViaOverlay(completion: @escaping (Result<CaptureResult, Error>) -> Void) {
+    private func captureViaOverlay(
+        selectionStyle: SettingsStore.RegionSelectionStyle,
+        completion: @escaping (Result<CaptureResult, Error>) -> Void
+    ) {
         // Record the app behind the overlay BEFORE we steal focus.
         let source = Self.frontmostSource()
 
-        overlay.begin { cocoaRect in
+        overlay.begin(selectionStyle: selectionStyle) { cocoaRect in
             guard let cocoaRect else {
                 completion(.failure(CaptureError.cancelled)); return
             }

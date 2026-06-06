@@ -19,7 +19,10 @@ final class CaptureCoordinator {
     var onCaptured: ((CapturedScreenshot) -> Void)?
 
     func runCapture(primary: Representation = .image) {
-        capture.captureRegion(mode: settings.captureMode) { [weak self] result in
+        capture.captureRegion(
+            mode: settings.captureMode,
+            selectionStyle: settings.regionSelectionStyle
+        ) { [weak self] result in
             guard let self else { return }
             switch result {
             case .failure(CaptureService.CaptureError.cancelled):

@@ -10,11 +10,17 @@ final class SettingsStore: ObservableObject {
         case shellOut   // /usr/sbin/screencapture (no app permission, OCR-only)
     }
 
+    enum RegionSelectionStyle: String {
+        case drag
+        case twoClick
+    }
+
     private let defaults = UserDefaults.standard
     private enum Key {
         static let defaultRep = "defaultRepresentation"
         static let autoDismiss = "autoDismissSeconds"
         static let captureMode = "captureMode"
+        static let regionSelectionStyle = "regionSelectionStyle"
         static let hotkeyKeyCode = "hotkeyKeyCode"
         static let hotkeyModifiers = "hotkeyModifiers"
     }
@@ -30,6 +36,9 @@ final class SettingsStore: ObservableObject {
     @Published var captureMode: CaptureMode {
         didSet { defaults.set(captureMode.rawValue, forKey: Key.captureMode); notify() }
     }
+    @Published var regionSelectionStyle: RegionSelectionStyle {
+        didSet { defaults.set(regionSelectionStyle.rawValue, forKey: Key.regionSelectionStyle); notify() }
+    }
     @Published var hotkey: HotkeyManager.Hotkey {
         didSet {
             defaults.set(Int(hotkey.keyCode), forKey: Key.hotkeyKeyCode)
@@ -42,6 +51,7 @@ final class SettingsStore: ObservableObject {
         defaults.register(defaults: [
             Key.autoDismiss: 10.0,
             Key.captureMode: CaptureMode.native.rawValue,   // native is default (enables AX)
+            Key.regionSelectionStyle: RegionSelectionStyle.drag.rawValue,
             Key.defaultRep: Representation.image.storageKey,
             Key.hotkeyKeyCode: Int(kVK_ANSI_C),
             Key.hotkeyModifiers: Int(controlKey | optionKey | cmdKey)
@@ -49,6 +59,8 @@ final class SettingsStore: ObservableObject {
         defaultRepresentation = Representation(storageKey: defaults.string(forKey: Key.defaultRep) ?? "") ?? .image
         autoDismissSeconds = defaults.double(forKey: Key.autoDismiss)
         captureMode = CaptureMode(rawValue: defaults.string(forKey: Key.captureMode) ?? "") ?? .native
+        regionSelectionStyle = RegionSelectionStyle(
+            rawValue: defaults.string(forKey: Key.regionSelectionStyle) ?? "") ?? .drag
         hotkey = HotkeyManager.Hotkey(
             keyCode: UInt32(defaults.integer(forKey: Key.hotkeyKeyCode)),
             modifiers: UInt32(defaults.integer(forKey: Key.hotkeyModifiers)))

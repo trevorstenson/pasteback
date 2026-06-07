@@ -175,7 +175,12 @@ final class AXHarvester {
 
     // MARK: - Text assembly (reading order: top→bottom, left→right)
 
-    private func assembleText(from elements: [AXElement]) -> String {
+    /// Assemble text in reading order. Elements are first clustered into columns
+    /// by horizontal gaps (side-by-side windows / multi-column layouts), then each
+    /// column is assembled top→bottom independently and columns are concatenated
+    /// left→right — so two columns aren't zippered together line by line.
+    /// Internal (not private) so the self-test can exercise it directly.
+    func assembleText(from elements: [AXElement]) -> String {
         let withText = elements.compactMap { e -> (CGRect, String)? in
             guard let t = e.text?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty
             else { return nil }
@@ -183,11 +188,19 @@ final class AXHarvester {
         }
         guard !withText.isEmpty else { return "" }
 
-        let sorted = withText.sorted {
+        return clusterColumns(withText)
+            .map { assembleLines(from: $0) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n\n")
+    }
+
+    /// Top→bottom, left→right within a single column.
+    private func assembleLines(from items: [(CGRect, String)]) -> String {
+        let sorted = items.sorted {
             abs($0.0.minY - $1.0.minY) > 6 ? $0.0.minY < $1.0.minY : $0.0.minX < $1.0.minX
         }
         var out = ""
-        var prevY = sorted.first!.0.minY
+        var prevY = sorted.first?.0.minY ?? 0
         for (frame, text) in sorted {
             if out.isEmpty { out = text }
             else if abs(frame.minY - prevY) > 6 { out += "\n" + text }
@@ -195,6 +208,39 @@ final class AXHarvester {
             prevY = frame.minY
         }
         return out
+    }
+
+    /// Group items into left→right columns by merging X-intervals; a horizontal
+    /// gap wider than `columnGap` starts a new column. A full-width element (e.g.
+    /// a header) spans the gutter and collapses everything back into one column,
+    /// so we only split on a genuine vertical gutter.
+    private func clusterColumns(_ items: [(CGRect, String)]) -> [[(CGRect, String)]] {
+        guard items.count > 1 else { return [items] }
+        let minX = items.map { $0.0.minX }.min()!
+        let maxX = items.map { $0.0.maxX }.max()!
+        let columnGap = max(24, (maxX - minX) * 0.04)
+
+        var bands: [(lo: CGFloat, hi: CGFloat)] = []
+        for (frame, _) in items.sorted(by: { $0.0.minX < $1.0.minX }) {
+            if var last = bands.last, frame.minX <= last.hi + columnGap {
+                last.hi = max(last.hi, frame.maxX)
+                bands[bands.count - 1] = last
+            } else {
+                bands.append((frame.minX, frame.maxX))
+            }
+        }
+        guard bands.count > 1 else { return [items] }
+
+        var columns = Array(repeating: [(CGRect, String)](), count: bands.count)
+        for item in items {
+            let center = item.0.midX
+            let index = bands.firstIndex { center >= $0.lo && center <= $0.hi }
+                ?? bands.enumerated().min {
+                    abs(($0.1.lo + $0.1.hi) / 2 - center) < abs(($1.1.lo + $1.1.hi) / 2 - center)
+                }!.offset
+            columns[index].append(item)
+        }
+        return columns
     }
 
     // MARK: - Chrome/Electron nudge

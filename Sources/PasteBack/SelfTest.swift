@@ -221,6 +221,25 @@ enum SelfTest {
                                       value: "https://pasteback.app", sourceText: "https://pasteback.app")])
         check(actionIDs(qrCapture).contains("qr-open"), "ActionResolver offers Open QR Link")
 
+        // --- Column-aware AX text assembly (no side-by-side row interleaving) ---
+        func axEl(_ x: CGFloat, _ y: CGFloat, _ t: String) -> AXElement {
+            AXElement(role: "AXStaticText", text: t, url: nil,
+                      frame: CGRect(x: x, y: y, width: 180, height: 16), sourcePID: 0)
+        }
+        let harvester = AXHarvester()
+        let twoColumns = [
+            axEl(0, 0, "Alpha one"),   axEl(400, 0, "Beta one"),
+            axEl(0, 30, "Alpha two"),  axEl(400, 30, "Beta two"),
+        ]
+        let assembled = harvester.assembleText(from: twoColumns)
+        check(assembled.contains("Alpha one\nAlpha two") && assembled.contains("Beta one\nBeta two"),
+              "assembleText keeps each column intact")
+        check(!assembled.contains("Alpha one Beta one"),
+              "assembleText does not zipper side-by-side columns row by row")
+        let oneColumn = [axEl(0, 0, "Line A"), axEl(0, 30, "Line B")]
+        check(harvester.assembleText(from: oneColumn) == "Line A\nLine B",
+              "assembleText leaves a single column unchanged")
+
         print(failures.isEmpty ? "\nSELFTEST PASS" : "\nSELFTEST FAIL (\(failures.count))")
         exit(failures.isEmpty ? 0 : 1)
     }

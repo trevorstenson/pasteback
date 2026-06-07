@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import SwiftUI
 
 /// Owns the floating, non-activating HUD panel that appears near the cursor after
@@ -9,6 +10,7 @@ final class HUDPanelController {
     private let viewModel = HUDViewModel()
     private var panel: NSPanel?
     private var dismissTimer: Timer?
+    private var keyboardMonitor: Any?
 
     private var autoDismissInterval: TimeInterval { SettingsStore.shared.autoDismissSeconds }
 
@@ -31,11 +33,13 @@ final class HUDPanelController {
 
         positionPanel(panel)
         panel.orderFrontRegardless()
+        installKeyboardMonitor()
         restartDismissTimer()
     }
 
     func dismiss() {
         dismissTimer?.invalidate(); dismissTimer = nil
+        removeKeyboardMonitor()
         panel?.orderOut(nil)
     }
 
@@ -85,5 +89,49 @@ final class HUDPanelController {
         dismissTimer = Timer.scheduledTimer(withTimeInterval: autoDismissInterval, repeats: false) {
             [weak self] _ in self?.dismiss()
         }
+    }
+
+    private func installKeyboardMonitor() {
+        guard keyboardMonitor == nil else { return }
+        keyboardMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, self.handleKeyDown(event) else { return event }
+            return nil
+        }
+    }
+
+    private func removeKeyboardMonitor() {
+        if let keyboardMonitor {
+            NSEvent.removeMonitor(keyboardMonitor)
+            self.keyboardMonitor = nil
+        }
+    }
+
+    private func handleKeyDown(_ event: NSEvent) -> Bool {
+        guard panel?.isVisible == true else { return false }
+
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let hasCommandLikeModifier = flags.contains(.command) || flags.contains(.control) || flags.contains(.option)
+        guard !hasCommandLikeModifier else { return false }
+
+        switch Int(event.keyCode) {
+        case kVK_Escape:
+            dismiss()
+            return true
+        case kVK_Return, kVK_ANSI_KeypadEnter:
+            viewModel.triggerFocused()
+            return true
+        case kVK_Tab:
+            viewModel.moveFocus(by: flags.contains(.shift) ? -1 : 1)
+            return true
+        default:
+            break
+        }
+
+        guard let chars = event.charactersIgnoringModifiers, chars.count == 1,
+              let value = Int(chars), value >= 1, value <= 9 else {
+            return false
+        }
+        viewModel.trigger(index: value - 1)
+        return true
     }
 }

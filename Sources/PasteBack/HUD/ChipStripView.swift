@@ -20,11 +20,14 @@ struct ChipStripView: View {
 
     private var chipBar: some View {
         HStack(spacing: 6) {
-            ForEach(viewModel.actions) { action in
+            ForEach(Array(viewModel.actions.enumerated()), id: \.element.id) { index, action in
                 ChipButton(
+                    shortcut: index < 9 ? "\(index + 1)" : nil,
                     action: action,
-                    isSelected: action.isStateful && action.id == viewModel.selectedID
+                    isSelected: action.isStateful && action.id == viewModel.selectedID,
+                    isFocused: index == viewModel.focusedIndex
                 ) {
+                    viewModel.focusedIndex = index
                     viewModel.tap(action)
                 }
             }
@@ -53,13 +56,24 @@ struct ChipStripView: View {
 }
 
 private struct ChipButton: View {
+    let shortcut: String?
     let action: CaptureAction
     let isSelected: Bool
+    let isFocused: Bool
     let onTap: () -> Void
 
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: 5) {
+                if let shortcut {
+                    Text(shortcut)
+                        .font(.system(size: 10, weight: .bold))
+                        .frame(minWidth: 14, minHeight: 14)
+                        .foregroundStyle(isFilled ? Color.white.opacity(0.9) : Color.secondary)
+                        .background(
+                            Circle().fill(isFilled ? Color.white.opacity(0.22) : Color.primary.opacity(0.08))
+                        )
+                }
                 Image(systemName: action.symbol)
                     .font(.system(size: 12, weight: .semibold))
                 Text(action.title)
@@ -73,6 +87,10 @@ private struct ChipButton: View {
             .background(
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
                     .fill(isFilled ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.quaternary))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .strokeBorder(isFocused ? Color.accentColor.opacity(0.9) : Color.clear, lineWidth: 2)
             )
         }
         .buttonStyle(.plain)

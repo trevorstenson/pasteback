@@ -20,6 +20,7 @@ final class CaptureCoordinator {
     var onCaptured: ((CapturedScreenshot) -> Void)?
 
     func runCapture(primary: Representation = .image) {
+        Log.write("capture requested: mode=\(settings.captureMode.rawValue) selectionStyle=\(settings.regionSelectionStyle.rawValue)")
         capture.captureRegion(
             mode: settings.captureMode,
             selectionStyle: settings.regionSelectionStyle
@@ -27,10 +28,17 @@ final class CaptureCoordinator {
             guard let self else { return }
             switch result {
             case .failure(CaptureService.CaptureError.cancelled):
+                Log.write("capture cancelled")
                 NSLog("Paste-Back: capture cancelled")
             case .failure(let error):
+                Log.write("capture failed: \(String(describing: error))")
                 NSLog("Paste-Back: capture failed: %@", String(describing: error))
             case .success(let captureResult):
+                Log.write("""
+                capture selected: rect=\(captureResult.rect.map { "\(Int($0.width))x\(Int($0.height))" } ?? "nil") \
+                image=\(captureResult.image.width)x\(captureResult.image.height) \
+                frontApp=\(captureResult.source.appName ?? "?")
+                """)
                 self.process(captureResult, primary: primary)
             }
         }
@@ -88,7 +96,8 @@ final class CaptureCoordinator {
             image=\(result.image.width)x\(result.image.height) \
             axTrusted=\(PermissionService.hasAccessibility()) \
             ocrLines=\(ocrResult.lines.count) axElems=\(ax.elements.count) \
-            axText=\(ax.text.count)chars ocrText=\(ocrResult.text.count)chars entities=\(entities.count) \
+            axText=\(ax.text.count)chars ocrText=\(ocrResult.text.count)chars \
+            canonicalText=\(canonicalText.count)chars entities=\(entities.count) \
             axLinks=\(ax.entities.count) ownerApps=\(ax.ownerPIDs.count) barcodes=\(barcodeEntities.count) \
             technical=\(technicalEntities.first.map { "\($0.type)" } ?? "nil") \
             pageURL=\(ax.pageURL?.absoluteString ?? "nil") \
@@ -114,11 +123,23 @@ final class CaptureCoordinator {
         guard let rect = result.rect, PermissionService.hasAccessibility() else {
             return AXResult(text: "", elements: [], entities: [], pageURL: nil, ownerPID: nil, ownerPIDs: [])
         }
+        if shouldSkipAX(result.source) {
+            Log.write("ax skipped: app=\(result.source.appName ?? "?") bundle=\(result.source.bundleIdentifier ?? "?")")
+            return AXResult(text: "", elements: [], entities: [], pageURL: nil, ownerPID: nil, ownerPIDs: [])
+        }
         // The harvester discovers the app(s) under the selected pixels itself,
         // weighted by coverage; the frontmost app is only a fallback.
         let h = axHarvester.harvest(rect: rect, fallbackPID: result.source.pid)
         return AXResult(text: h.text, elements: h.elements, entities: h.entities,
                         pageURL: h.pageURL, ownerPID: h.ownerPID, ownerPIDs: h.ownerPIDs)
+    }
+
+    private func shouldSkipAX(_ source: CaptureSource) -> Bool {
+        let app = (source.appName ?? "").lowercased()
+        let bundle = (source.bundleIdentifier ?? "").lowercased()
+        // Warp exposes terminal/chat scrollback as a huge single AX text value and
+        // can stall harvesting. OCR is the correct scoped source for lassoed Warp regions.
+        return app == "warp" || bundle.contains("warp")
     }
 
     func recopy(as representation: Representation) {

@@ -23,7 +23,10 @@ struct RepresentationBuilder {
             }
             return result
 
-        case .image, .plainText, .markdown, .rtf, .html:
+        case .image:
+            return payload(for: .image, from: capture).map { [$0] } ?? []
+
+        case .plainText, .markdown, .rtf, .html:
             var ordered: [Payload] = []
             var seen = Set<NSPasteboard.PasteboardType>()
             func add(_ p: Payload?) {

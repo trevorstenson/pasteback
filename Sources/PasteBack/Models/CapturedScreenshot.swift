@@ -95,8 +95,18 @@ struct CapturedScreenshot {
 
     let entities: [DetectedEntity]
 
-    /// The canonical text for representations: AX text when present, else OCR.
-    var canonicalText: String { axText.isEmpty ? ocrText : axText }
+    /// The canonical text for representations: AX text when it plausibly matches
+    /// the selected region, else OCR. Some apps expose one giant AX leaf for an
+    /// entire scrollback/document even when the user selected a tiny rect; using
+    /// that would make the capture feel unrelated to the lasso.
+    var canonicalText: String {
+        guard !axText.isEmpty else { return ocrText }
+        guard !ocrText.isEmpty else { return axText }
+        if axText.count > 10_000 && axText.count > ocrText.count * 20 {
+            return ocrText
+        }
+        return axText
+    }
 
     init(
         id: UUID = UUID(),

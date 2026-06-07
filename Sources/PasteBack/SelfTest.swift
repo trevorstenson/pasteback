@@ -28,6 +28,12 @@ enum SelfTest {
         let hasEmail = entities.contains { $0.type == .email }
         check(hasURL, "detected a URL entity")
         check(hasEmail, "detected an email entity")
+        let relativePathEntities = EntityDetector().detect(in: "./Sources/PasteBack/AppDelegate.swift")
+        check(!relativePathEntities.contains { $0.type == .filePath },
+              "relative paths do not trigger Reveal in Finder")
+        let existingPathEntities = EntityDetector().detect(in: FileManager.default.currentDirectoryPath)
+        check(existingPathEntities.contains { $0.type == .filePath },
+              "existing absolute paths trigger Reveal in Finder")
 
         let capture = CapturedScreenshot(
             image: image, ocrText: result.text, ocrLines: result.lines, entities: entities)
@@ -57,12 +63,18 @@ enum SelfTest {
 
         _ = writer.write(capture, primary: .image)
         check(pb.types?.first == .png, "Image mode primary is PNG")
-        check(pb.string(forType: .string) != nil, "Image mode carries text")
+        check(pb.string(forType: .string) == nil, "Image mode is image-only")
 
         // AX-preference: canonicalText prefers AX text when present.
         let axCap = CapturedScreenshot(
             image: image, ocrText: "ocr fallback", axText: "ax ground truth")
         check(axCap.canonicalText == "ax ground truth", "canonicalText prefers AX over OCR")
+        let hugeAXCap = CapturedScreenshot(
+            image: image,
+            ocrText: "selected text from pixels",
+            axText: String(repeating: "terminal scrollback ", count: 30_000))
+        check(hugeAXCap.canonicalText == "selected text from pixels",
+              "canonicalText rejects oversized AX scrollback")
 
         let settings = SettingsStore.shared
         settings.autoDismissSeconds = 7

@@ -73,9 +73,7 @@ struct EntityDetector {
         out += matches(text, #"\b[0-9a-f]{7,40}\b"#).map {
             DetectedEntity(type: .commitHash, value: $0, sourceText: $0)
         }
-        out += matches(text, #"(?:~|\.{0,2})(?:/[\w.\-]+){2,}"#).map {
-            DetectedEntity(type: .filePath, value: $0, sourceText: $0)
-        }
+        out += filePathEntities(in: text)
         if text.contains("Traceback (most recent call last)")
             || matches(text, #"(?m)^\s+at\s+\S+\(\S+:\d+\)"#).count >= 1 {
             out.append(DetectedEntity(type: .stackTrace, value: text, sourceText: text))
@@ -89,6 +87,36 @@ struct EntityDetector {
         return regex.matches(in: text, range: range).compactMap {
             Range($0.range, in: text).map { String(text[$0]) }
         }
+    }
+
+    private func filePathEntities(in text: String) -> [DetectedEntity] {
+        let candidates =
+            matches(text, #"file:///[^\s"'<>)]+"#) +
+            matches(text, #"~(?:/[\w.\-@()]+){1,}"#) +
+            matches(text, #"(?<![\w.])/(?:[\w.\-@()]+/)*[\w.\-@()]+"#)
+
+        return candidates.compactMap { raw in
+            let trimmed = raw.trimmingCharacters(in: CharacterSet(charactersIn: ".,;:)]}\"'"))
+            guard let path = certainPath(from: trimmed) else { return nil }
+            return DetectedEntity(type: .filePath, value: path, sourceText: raw)
+        }
+    }
+
+    private func certainPath(from raw: String) -> String? {
+        let path: String
+        if raw.hasPrefix("file://") {
+            guard let url = URL(string: raw), url.isFileURL else { return nil }
+            path = url.path
+        } else if raw.hasPrefix("~/") {
+            path = (raw as NSString).expandingTildeInPath
+        } else if raw.hasPrefix("/") {
+            path = raw
+        } else {
+            return nil
+        }
+
+        guard FileManager.default.fileExists(atPath: path) else { return nil }
+        return path
     }
 
     // MARK: - Dedup (seed/AX entries kept first → they win)

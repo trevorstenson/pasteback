@@ -25,7 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let defaultID = "rep-\(self.defaultRepresentation.storageKey)"
             let selected = actions.contains { $0.id == defaultID } ? defaultID
                 : actions.first { $0.isStateful }?.id
-            self.hud.show(actions: actions, selectedID: selected)
+            self.hud.show(capture: capture, actions: actions, selectedID: selected)
         }
         registerHotkey()
         NotificationCenter.default.addObserver(

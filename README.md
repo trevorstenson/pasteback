@@ -19,7 +19,10 @@ Lasso a region and you get back:
 - **The image itself**, when a picture is what you want
 
 A floating chip strip lets you act on the capture right away — open a link,
-reveal a file, or copy any representation.
+reveal a file, or copy any representation. A preview line shows what the capture
+got at a glance (text, counts, and whether it came from the Accessibility tree
+or OCR), and pressing **Space** expands a full inspector: every link with its
+real destination, all detected entities, and the capture's provenance.
 
 ## How it works
 

@@ -6,13 +6,22 @@ final class HUDViewModel: ObservableObject {
     @Published var actions: [CaptureAction] = []
     @Published var selectedID: String?
     @Published var focusedIndex: Int = 0
+    @Published var capture: CapturedScreenshot?
+    @Published var summary: CaptureSummary?
+    @Published var isExpanded = false
 
     /// Fired after any chip tap (used to reset the auto-dismiss timer).
     var onTap: (() -> Void)?
     /// Fired when the user explicitly closes the HUD.
     var onDismiss: (() -> Void)?
+    /// Fired after the inspector expands/collapses, so the panel controller can
+    /// re-attach a fresh hosting view, resize, and pause/resume the timer.
+    var onExpandedChange: ((Bool) -> Void)?
 
-    func update(actions: [CaptureAction], selectedID: String?) {
+    func update(capture: CapturedScreenshot?, actions: [CaptureAction], selectedID: String?) {
+        self.capture = capture
+        self.summary = capture.map(CaptureSummary.init)
+        self.isExpanded = false
         self.actions = actions
         self.selectedID = selectedID
         if let selectedID, let idx = actions.firstIndex(where: { $0.id == selectedID }) {
@@ -48,6 +57,20 @@ final class HUDViewModel: ObservableObject {
             action.perform()
         }
         onTap?()
+    }
+
+    func toggleExpanded() {
+        guard capture != nil else { return }
+        isExpanded.toggle()
+        onExpandedChange?(isExpanded)
+    }
+
+    /// Collapses the inspector if open. Returns true when it did collapse.
+    func collapseIfExpanded() -> Bool {
+        guard isExpanded else { return false }
+        isExpanded = false
+        onExpandedChange?(false)
+        return true
     }
 
     func dismiss() {

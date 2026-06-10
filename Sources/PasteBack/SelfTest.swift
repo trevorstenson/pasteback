@@ -76,6 +76,52 @@ enum SelfTest {
         check(hugeAXCap.canonicalText == "selected text from pixels",
               "canonicalText rejects oversized AX scrollback")
 
+        // --- Stage 1: CaptureSummary (HUD preview row) ---
+        let summaryCapture = CapturedScreenshot(
+            image: image,
+            source: CaptureSource(appName: "Arc", bundleIdentifier: "company.thebrowser.Browser",
+                                  pid: nil, url: nil),
+            ocrText: "ocr guess",
+            axText: "Sign in to your account\nor create a new one",
+            entities: [
+                DetectedEntity(type: .url, value: "https://a.example.com", sourceText: "a", source: .ax),
+                DetectedEntity(type: .url, value: "https://b.example.com", sourceText: "b", source: .ax),
+                DetectedEntity(type: .email, value: "x@example.com", sourceText: "x@example.com"),
+            ])
+        let axSummary = CaptureSummary(capture: summaryCapture)
+        check(axSummary.sourceBadge == .ax, "summary badge is AX when AX text wins")
+        check(axSummary.lineCount == 2 && axSummary.linkCount == 2 && axSummary.entityCount == 1,
+              "summary counts lines/links/entities")
+        check(axSummary.previewText.hasPrefix("Sign in to your account"),
+              "summary preview comes from canonical text")
+        check(axSummary.appName == "Arc", "summary carries the source app name")
+        check(axSummary.metadataText == "2 lines · 2 links · 1 entity",
+              "summary metadata line is assembled correctly")
+
+        check(CaptureSummary(capture: hugeAXCap).sourceBadge == .ocr,
+              "summary badge falls back to OCR on oversized-AX rejection")
+
+        let mixedCap = CapturedScreenshot(
+            image: image, ocrText: "ocr only text",
+            entities: [DetectedEntity(type: .url, value: "https://x.example.com",
+                                      sourceText: "x", source: .ax)])
+        check(CaptureSummary(capture: mixedCap).sourceBadge == .mixed,
+              "summary badge is AX+OCR when AX entities seed OCR text")
+
+        let imageOnlyCap = CapturedScreenshot(image: image, ocrText: "")
+        let imageOnlySummary = CaptureSummary(capture: imageOnlyCap)
+        check(imageOnlySummary.previewText == "Image only" && imageOnlySummary.isImageOnly,
+              "summary reads 'Image only' for textless captures")
+        check(imageOnlySummary.sourceBadge == .ocr && imageOnlySummary.metadataText.isEmpty,
+              "image-only summary has no counts")
+
+        let longCap = CapturedScreenshot(
+            image: image, ocrText: String(repeating: "word ", count: 40))
+        let longSummary = CaptureSummary(capture: longCap)
+        check(longSummary.previewText.count <= CaptureSummary.previewLimit + 1
+              && longSummary.previewText.hasSuffix("…"),
+              "summary preview truncates to ~60 chars with ellipsis")
+
         let settings = SettingsStore.shared
         settings.autoDismissSeconds = 7
         check(UserDefaults.standard.double(forKey: "autoDismissSeconds") == 7,

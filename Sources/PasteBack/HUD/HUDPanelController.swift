@@ -17,19 +17,17 @@ final class HUDPanelController {
     init() {
         viewModel.onTap = { [weak self] in self?.restartDismissTimer() }
         viewModel.onDismiss = { [weak self] in self?.dismiss() }
+        viewModel.onExpandedChange = { [weak self] expanded in
+            self?.expandedDidChange(expanded)
+        }
     }
 
-    func show(actions: [CaptureAction], selectedID: String?) {
-        viewModel.update(actions: actions, selectedID: selectedID)
+    func show(capture: CapturedScreenshot?, actions: [CaptureAction], selectedID: String?) {
+        viewModel.update(capture: capture, actions: actions, selectedID: selectedID)
         let panel = panel ?? makePanel()
         self.panel = panel
 
-        // Attach a FRESH hosting view each time so its intrinsic size reflects the
-        // current chip set synchronously — reusing one lags a frame and clips the
-        // right edge when a capture is wider than the previous one.
-        let hosting = NSHostingView(rootView: ChipStripView(viewModel: viewModel))
-        hosting.sizingOptions = [.intrinsicContentSize]
-        panel.contentView = hosting
+        attachFreshHostingView(to: panel)
 
         positionPanel(panel)
         panel.orderFrontRegardless()
@@ -37,9 +35,34 @@ final class HUDPanelController {
         restartDismissTimer()
     }
 
+    /// Attach a FRESH hosting view on every state change so its intrinsic size
+    /// reflects the current content synchronously — reusing one lags a frame and
+    /// clips the right edge when a capture is wider than the previous one.
+    private func attachFreshHostingView(to panel: NSPanel) {
+        let hosting = NSHostingView(rootView: ChipStripView(viewModel: viewModel))
+        hosting.sizingOptions = [.intrinsicContentSize]
+        panel.contentView = hosting
+    }
+
+    /// Inspector toggled: swap content, grow/shrink keeping the panel's bottom
+    /// edge anchored (it grows upward from the strip position), and pause the
+    /// auto-dismiss timer while the user is reading.
+    private func expandedDidChange(_ expanded: Bool) {
+        guard let panel, panel.isVisible else { return }
+        let previousFrame = panel.frame
+        attachFreshHostingView(to: panel)
+        repositionAnchored(panel, previousFrame: previousFrame)
+        if expanded {
+            dismissTimer?.invalidate(); dismissTimer = nil
+        } else {
+            restartDismissTimer()
+        }
+    }
+
     func dismiss() {
         dismissTimer?.invalidate(); dismissTimer = nil
         removeKeyboardMonitor()
+        viewModel.isExpanded = false
         panel?.orderOut(nil)
     }
 
@@ -84,8 +107,29 @@ final class HUDPanelController {
         panel.setFrameOrigin(origin)
     }
 
+    /// Resize after an expand/collapse, keeping the bottom edge and horizontal
+    /// center where the strip was (respecting any drag the user made).
+    private func repositionAnchored(_ panel: NSPanel, previousFrame: NSRect) {
+        if let hosting = panel.contentView {
+            hosting.layoutSubtreeIfNeeded()
+            panel.setContentSize(hosting.fittingSize)
+        }
+        let size = panel.frame.size
+        var origin = NSPoint(x: previousFrame.midX - size.width / 2,
+                             y: previousFrame.minY)
+        let screen = NSScreen.screens.first(where: { $0.frame.intersects(previousFrame) }) ?? NSScreen.main
+        if let visible = screen?.visibleFrame {
+            origin.x = min(max(origin.x, visible.minX + 8), visible.maxX - size.width - 8)
+            origin.y = min(max(origin.y, visible.minY + 8), visible.maxY - size.height - 8)
+        }
+        panel.setFrameOrigin(origin)
+    }
+
     private func restartDismissTimer() {
-        dismissTimer?.invalidate()
+        dismissTimer?.invalidate(); dismissTimer = nil
+        // The expanded inspector is a deliberate "I'm reading this" mode — no
+        // auto-dismiss until it collapses.
+        guard !viewModel.isExpanded else { return }
         dismissTimer = Timer.scheduledTimer(withTimeInterval: autoDismissInterval, repeats: false) {
             [weak self] _ in self?.dismiss()
         }
@@ -115,7 +159,11 @@ final class HUDPanelController {
 
         switch Int(event.keyCode) {
         case kVK_Escape:
-            dismiss()
+            // Esc collapses the inspector first; a second Esc dismisses.
+            if !viewModel.collapseIfExpanded() { dismiss() }
+            return true
+        case kVK_Space:
+            viewModel.toggleExpanded()
             return true
         case kVK_Return, kVK_ANSI_KeypadEnter:
             viewModel.triggerFocused()

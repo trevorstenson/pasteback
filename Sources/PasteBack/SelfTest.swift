@@ -402,6 +402,165 @@ enum SelfTest {
         check(harvester.assembleText(from: oneColumn) == "Line A\nLine B",
               "assembleText leaves a single column unchanged")
 
+        // --- Stage 6: Table → CSV ---
+        let tableRecognizer = TableRecognizer()
+        func gridEl(_ x: CGFloat, _ y: CGFloat, _ t: String) -> AXElement {
+            AXElement(role: "AXStaticText", text: t, url: nil,
+                      frame: CGRect(x: x, y: y, width: 160, height: 16), sourcePID: 0)
+        }
+        // Rung 2: AX geometry — 3×2 grid.
+        let axGridElements = [
+            gridEl(0, 0, "Name"),  gridEl(200, 0, "Qty"),
+            gridEl(0, 30, "Apple"), gridEl(200, 30, "3"),
+            gridEl(0, 60, "Pear"),  gridEl(200, 60, "12"),
+        ]
+        let axTable = tableRecognizer.inferFromAX(elements: axGridElements)
+        check(axTable?.rowCount == 3 && axTable?.columnCount == 2 && axTable?.source == .ax,
+              "TableRecognizer infers a 3×2 table from AX geometry")
+        check(axTable?.isStructural == false,
+              "AX leaf-geometry tables are not marked structural")
+        check(axTable?.rows == [["Name", "Qty"], ["Apple", "3"], ["Pear", "12"]],
+              "AX-geometry table cells land in the right rows/columns")
+
+        // Rung 3: OCR geometry — Vision-normalized boxes (origin bottom-left).
+        func ocrCell(_ x: CGFloat, _ minY: CGFloat, _ t: String) -> OCRLine {
+            OCRLine(text: t, boundingBox: CGRect(x: x, y: minY, width: 0.2, height: 0.05))
+        }
+        let ocrGrid = [
+            ocrCell(0.1, 0.85, "A"), ocrCell(0.6, 0.85, "B"),
+            ocrCell(0.1, 0.65, "C"), ocrCell(0.6, 0.65, "D"),
+            ocrCell(0.1, 0.45, "E"), ocrCell(0.6, 0.45, "F"),
+        ]
+        let ocrTable = tableRecognizer.inferFromOCR(lines: ocrGrid)
+        check(ocrTable?.rowCount == 3 && ocrTable?.columnCount == 2 && ocrTable?.source == .ocr,
+              "TableRecognizer infers a 3×2 table from OCR geometry")
+        check(ocrTable?.isStructural == false,
+              "OCR-geometry tables are not marked structural")
+        check(ocrTable?.rows.first == ["A", "B"] && ocrTable?.rows.last == ["E", "F"],
+              "OCR-geometry rows are ordered top→bottom after Y flip")
+
+        // Vision often returns one observation per visual row; word boxes are
+        // what make screenshot-of-table OCR useful.
+        func token(_ x: CGFloat, _ minY: CGFloat, _ w: CGFloat, _ t: String) -> OCRToken {
+            OCRToken(text: t, boundingBox: CGRect(x: x, y: minY, width: w, height: 0.05))
+        }
+        func mergedOCRRow(_ minY: CGFloat, _ words: [(CGFloat, CGFloat, String)]) -> OCRLine {
+            let text = words.map(\.2).joined(separator: " ")
+            return OCRLine(
+                text: text,
+                boundingBox: CGRect(x: 0.08, y: minY, width: 0.84, height: 0.05),
+                tokens: words.map { token($0.0, minY, $0.1, $0.2) })
+        }
+        let mergedOCRRows = [
+            mergedOCRRow(0.85, [(0.10, 0.10, "Plan"), (0.42, 0.06, "Seats"), (0.62, 0.08, "Price")]),
+            mergedOCRRow(0.65, [(0.10, 0.12, "Starter"), (0.42, 0.03, "3"), (0.62, 0.05, "$0")]),
+            mergedOCRRow(0.45, [(0.10, 0.10, "Team"), (0.42, 0.04, "12"), (0.62, 0.07, "$20")]),
+        ]
+        let mergedOCRTable = tableRecognizer.inferFromOCR(lines: mergedOCRRows)
+        check(mergedOCRTable?.rows == [["Plan", "Seats", "Price"], ["Starter", "3", "$0"], ["Team", "12", "$20"]],
+              "TableRecognizer recovers a table from Vision merged-row OCR using word boxes")
+
+        // A single spanning/caption cell should not collapse every column.
+        let spanningGrid = [
+            AXElement(role: "AXStaticText", text: "Quarterly plan summary across all columns",
+                      url: nil, frame: CGRect(x: 0, y: -30, width: 360, height: 16), sourcePID: 0),
+            gridEl(0, 0, "Plan"),  gridEl(200, 0, "Qty"),
+            gridEl(0, 30, "Apple"), gridEl(200, 30, "3"),
+            gridEl(0, 60, "Pear"),  gridEl(200, 60, "12"),
+        ]
+        let spanningTable = tableRecognizer.inferFromAX(elements: spanningGrid)
+        check(spanningTable?.columnCount == 2,
+              "TableRecognizer keeps columns when one row spans the gutter")
+
+        // Multi-column prose must NOT be read as a table (median cell > ~40 chars).
+        let proseGrid = [
+            gridEl(0, 0, "The quick brown fox jumps over the lazy dog every morning"),
+            gridEl(200, 0, "While the second column carries an equally long sentence here"),
+            gridEl(0, 30, "Another paragraph of prose that wraps across the column width"),
+            gridEl(200, 30, "And its neighbor likewise runs well beyond forty characters wide"),
+            gridEl(0, 60, "A third left line continuing the flowing multi-column body text"),
+            gridEl(200, 60, "Matched on the right by yet another long-form prose continuation"),
+        ]
+        check(tableRecognizer.inferFromAX(elements: proseGrid) == nil,
+              "TableRecognizer rejects multi-column prose as a table")
+
+        // CSV quoting matrix (RFC-4180) + CRLF row endings.
+        let quotingTable = TableData(
+            headers: ["a", "b,c"],
+            rows: [["x\"y", "line1\nline2"], ["p", "q"]],
+            source: .ocr)
+        let csv = TableFormatter.csv(quotingTable)
+        check(csv.contains("\"b,c\""), "CSV quotes fields containing commas")
+        check(csv.contains("\"x\"\"y\""), "CSV doubles embedded quotes")
+        check(csv.contains("\"line1\nline2\""), "CSV quotes fields containing newlines")
+        check(csv.contains("\r\n"), "CSV uses CRLF row endings")
+
+        // Markdown pipe table.
+        let md = TableFormatter.markdown(TableData(headers: ["H1", "H2"], rows: [["a", "b"]], source: .ax))
+        check(md == "| H1 | H2 |\n| --- | --- |\n| a | b |", "TableFormatter emits a Markdown pipe table")
+        let markdownCapture = CapturedScreenshot(
+            image: image,
+            ocrText: "Intro paragraph",
+            tables: [TableData(headers: ["H"], rows: [["a"]], source: .ocr)])
+        let markdownPayload = RepresentationBuilder().payload(for: .markdown, from: markdownCapture)
+        let markdownText = markdownPayload.flatMap { String(data: $0.data, encoding: .utf8) } ?? ""
+        check(markdownText.contains("Intro paragraph") && markdownText.contains("| H |"),
+              "Markdown table payload preserves surrounding text")
+
+        // TSV rides the plain-text flavor when a table is the primary (cells, not
+        // one column) and an explicit CSV type rides alongside.
+        let tableCapture = CapturedScreenshot(
+            image: image, ocrText: "",
+            tables: [TableData(headers: nil, rows: [["A", "B"], ["C", "D"]], source: .ocr)])
+        check(RepresentationBuilder().availableRepresentations(for: tableCapture).contains(.csv),
+              "Table (CSV) chip offered when a table is present")
+        _ = writer.write(tableCapture, primary: .csv)
+        check(pb.string(forType: .string) == "A\tB\nC\tD",
+              "Table-primary writes TSV to the plain-text flavor")
+        check(pb.data(forType: RepresentationBuilder.csvType) != nil,
+              "Table-primary also carries an explicit CSV flavor")
+        check(pb.data(forType: .png) == nil,
+              "Table-primary carries no image (so spreadsheets paste cells, not a picture)")
+        let tableChipIDs = copyChipIDs(tableCapture)
+        check(tableChipIDs.first == "rep-csv" && tableChipIDs.last == "rep-image",
+              "Copy as Table leads the copy group; Image stays last")
+        check(actionIDs(tableCapture).contains("save-csv"),
+              "ActionResolver offers Save CSV for a table capture")
+        check(actionIDs(tableCapture).first != "save-csv",
+              "Geometry-inferred tables do not promote Save CSV ahead of copy actions")
+        let structuralTableCapture = CapturedScreenshot(
+            image: image,
+            ocrText: "",
+            tables: [TableData(headers: nil, rows: [["A", "B"], ["C", "D"]],
+                               source: .ax, isStructural: true)])
+        check(actionIDs(structuralTableCapture).first == "save-csv",
+              "AX-structural tables can lead with Save CSV")
+        let axGeometryTableCapture = CapturedScreenshot(
+            image: image,
+            ocrText: "",
+            tables: [TableData(headers: nil, rows: [["A", "B"], ["C", "D"]],
+                               source: .ax, isStructural: false)])
+        check(actionIDs(axGeometryTableCapture).first != "save-csv",
+              "AX-geometry tables do not promote Save CSV ahead of copy actions")
+        let tableSummary = CaptureSummary(capture: tableCapture)
+        check(tableSummary.tableShape == "2×2" && tableSummary.metadataText.contains("2×2 table"),
+              "summary reports the table shape")
+
+        // Tables survive the history persistence round-trip.
+        let tableRecord = CaptureRecord(capture: CapturedScreenshot(
+            image: image, ocrText: "",
+            tables: [TableData(headers: ["H"], rows: [["a"], ["b"]],
+                               source: .ax, isStructural: true)]))
+        let encodedRecord = try? JSONEncoder().encode(tableRecord)
+        let decodedRecord = encodedRecord.flatMap { try? JSONDecoder().decode(CaptureRecord.self, from: $0) }
+        let roundTrippedTables = decodedRecord?.detectedTables()
+        check(roundTrippedTables?.first?.headers == ["H"]
+              && roundTrippedTables?.first?.rows == [["a"], ["b"]]
+              && roundTrippedTables?.first?.source == .ax,
+              "tables round-trip through CaptureRecord")
+        check(roundTrippedTables?.first?.isStructural == true,
+              "table structural confidence round-trips through CaptureRecord")
+
         print(failures.isEmpty ? "\nSELFTEST PASS" : "\nSELFTEST FAIL (\(failures.count))")
         exit(failures.isEmpty ? 0 : 1)
     }

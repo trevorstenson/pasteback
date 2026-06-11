@@ -22,12 +22,23 @@ struct CaptureRecord: Codable, Identifiable {
         let source: String
     }
 
+    struct Table: Codable {
+        let headers: [String]?
+        let rows: [[String]]
+        /// `"ax"` or `"ocr"`.
+        let source: String
+        /// True only when the table shape came from AXTable/AXOutline.
+        let isStructural: Bool?
+    }
+
     let id: UUID
     let timestamp: Date
     let source: Source
     let ocrText: String
     let axText: String
     let entities: [Entity]
+    /// Optional for backward compatibility with records written before Stage 6.
+    let tables: [Table]?
 
     init(capture: CapturedScreenshot) {
         id = capture.id
@@ -42,6 +53,20 @@ struct CaptureRecord: Codable, Identifiable {
                    value: $0.value,
                    sourceText: $0.sourceText,
                    source: $0.source == .ax ? "ax" : "ocr")
+        }
+        tables = capture.tables.map {
+            Table(headers: $0.headers, rows: $0.rows,
+                  source: $0.source == .ax ? "ax" : "ocr",
+                  isStructural: $0.isStructural)
+        }
+    }
+
+    /// Typed tables for re-hydration.
+    func detectedTables() -> [TableData] {
+        (tables ?? []).map {
+            TableData(headers: $0.headers, rows: $0.rows,
+                      source: $0.source == "ax" ? .ax : .ocr,
+                      isStructural: $0.isStructural ?? false)
         }
     }
 

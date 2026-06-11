@@ -15,6 +15,7 @@ struct InspectorView: View {
         VStack(alignment: .leading, spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
+                    if let table = capture.tables.first { tableSection(table) }
                     if !capture.canonicalText.isEmpty { textSection }
                     if !links.isEmpty { linksSection }
                     if !entityGroups.isEmpty { entitiesSection }
@@ -66,6 +67,24 @@ struct InspectorView: View {
     }
 
     // MARK: - Sections
+
+    private func tableSection(_ table: TableData) -> some View {
+        SectionCard(title: "Table", count: nil,
+                    copyValue: TableFormatter.tsv(table)) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Text("\(table.rowCount) × \(table.columnCount)")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    SourceBadgeView(badge: table.source == .ax ? .ax : .ocr)
+                    if let action = actions.first(where: { $0.id == "save-csv" }) {
+                        ActionPill(action: action)
+                    }
+                }
+                TableGridPreview(table: table)
+            }
+        }
+    }
 
     private var textSection: some View {
         SectionCard(title: "Text", count: summary.lineCount,
@@ -340,6 +359,63 @@ private struct ActionPill: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
+    }
+}
+
+/// Compact, read-only grid preview of a recovered table — the trust loop for the
+/// flagship. Shows up to a handful of rows; the chips/Save CSV act on the full table.
+private struct TableGridPreview: View {
+    let table: TableData
+    private let maxRows = 6
+    private let maxColumns = 6
+
+    private var columns: Int { min(table.columnCount, maxColumns) }
+
+    /// Rows to display, header first when present.
+    private var displayRows: [(isHeader: Bool, cells: [String])] {
+        var out: [(Bool, [String])] = []
+        if let headers = table.headers { out.append((true, headers)) }
+        for row in table.rows { out.append((false, row)) }
+        let hasExplicitHeader = table.headers != nil
+        // When there's no explicit header, style the first row as one.
+        if !hasExplicitHeader, !out.isEmpty { out[0].0 = true }
+        return Array(out.prefix(maxRows))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(displayRows.enumerated()), id: \.offset) { rowIndex, row in
+                HStack(spacing: 0) {
+                    ForEach(0..<columns, id: \.self) { col in
+                        Text(verbatim: col < row.cells.count ? row.cells[col] : "")
+                            .font(.system(size: 10, weight: row.isHeader ? .semibold : .regular,
+                                          design: .monospaced))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                    }
+                }
+                .background(row.isHeader ? AnyShapeStyle(Color.primary.opacity(0.06))
+                                         : AnyShapeStyle(Color.clear))
+                if rowIndex < displayRows.count - 1 {
+                    Divider().opacity(0.3)
+                }
+            }
+            if table.rowCount > maxRows {
+                Text("+\(table.rowCount - maxRows) more rows")
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 6)
+                    .padding(.top, 4)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+        )
     }
 }
 

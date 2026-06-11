@@ -6,6 +6,22 @@ struct OCRLine {
     let text: String
     /// Vision-normalized coordinates (0–1), origin bottom-left.
     let boundingBox: CGRect
+    /// Per-token geometry from the same Vision observation. Empty for older
+    /// fixtures / OCR providers that only expose line boxes.
+    let tokens: [OCRToken]
+
+    init(text: String, boundingBox: CGRect, tokens: [OCRToken] = []) {
+        self.text = text
+        self.boundingBox = boundingBox
+        self.tokens = tokens
+    }
+}
+
+/// A word/token recognized by Vision, with its normalized bounding box.
+struct OCRToken: Equatable {
+    let text: String
+    /// Vision-normalized coordinates (0–1), origin bottom-left.
+    let boundingBox: CGRect
 }
 
 /// An element harvested from the Accessibility tree under the capture region.
@@ -40,6 +56,34 @@ enum EntityType: Equatable {
 enum EntitySource {
     case ax
     case ocr
+}
+
+/// A tabular region recovered from a capture: rectangular rows, an optional
+/// header, text source, and whether the structure came from a real AX table
+/// role. Produced by `TableRecognizer` (geometry rungs) or `AXHarvester`
+/// (structural rung).
+struct TableData: Equatable {
+    /// Column headers, or `nil` when no header row is distinguishable.
+    let headers: [String]?
+    /// Rectangular rows; short rows are padded with `""` so every row has the
+    /// same column count.
+    let rows: [[String]]
+    let source: EntitySource
+    /// True only for AXTable/AXOutline structural harvests. AX leaf geometry
+    /// still has `source == .ax`, but its structure is inferred.
+    let isStructural: Bool
+
+    init(headers: [String]?, rows: [[String]], source: EntitySource, isStructural: Bool = false) {
+        self.headers = headers
+        self.rows = rows
+        self.source = source
+        self.isStructural = isStructural
+    }
+
+    var columnCount: Int {
+        max(headers?.count ?? 0, rows.map(\.count).max() ?? 0)
+    }
+    var rowCount: Int { rows.count }
 }
 
 /// What happened when PasteBack tried to enrich a capture via Accessibility.
@@ -121,6 +165,10 @@ struct CapturedScreenshot {
 
     let entities: [DetectedEntity]
 
+    /// Tables recovered from the selection (highest-fidelity rung that produced
+    /// a confident result). Default empty — additive, nothing else depends on it.
+    let tables: [TableData]
+
     /// The canonical text for representations: AX text when it plausibly matches
     /// the selected region, else OCR. Some apps expose one giant AX leaf for an
     /// entire scrollback/document even when the user selected a tiny rect; using
@@ -149,7 +197,8 @@ struct CapturedScreenshot {
         axText: String = "",
         axElements: [AXElement] = [],
         axOutcome: AXOutcome = .notAttempted,
-        entities: [DetectedEntity] = []
+        entities: [DetectedEntity] = [],
+        tables: [TableData] = []
     ) {
         self.id = id
         self.timestamp = timestamp
@@ -162,6 +211,7 @@ struct CapturedScreenshot {
         self.axElements = axElements
         self.axOutcome = axOutcome
         self.entities = entities
+        self.tables = tables
     }
 }
 
@@ -177,4 +227,5 @@ enum Representation: Hashable, Identifiable {
     case firstEmail
     case firstPhone
     case codeBlock
+    case csv
 }

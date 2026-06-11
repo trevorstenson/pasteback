@@ -13,6 +13,7 @@ extension Representation {
         case .firstEmail: return "First Email"
         case .firstPhone: return "Phone"
         case .codeBlock:  return "Code"
+        case .csv:        return "Table (CSV)"
         }
     }
 
@@ -22,6 +23,7 @@ extension Representation {
         case .markdown: return "markdown"; case .rtf: return "rtf"; case .html: return "html"
         case .firstURL: return "firstURL"; case .firstEmail: return "firstEmail"
         case .firstPhone: return "firstPhone"; case .codeBlock: return "codeBlock"
+        case .csv: return "csv"
         }
     }
 
@@ -31,6 +33,7 @@ extension Representation {
         case "markdown": self = .markdown; case "rtf": self = .rtf; case "html": self = .html
         case "firstURL": self = .firstURL; case "firstEmail": self = .firstEmail
         case "firstPhone": self = .firstPhone; case "codeBlock": self = .codeBlock
+        case "csv": self = .csv
         default: return nil
         }
     }
@@ -46,6 +49,7 @@ extension Representation {
         case .firstEmail: return "envelope"
         case .firstPhone: return "phone"
         case .codeBlock:  return "curlybraces"
+        case .csv:        return "tablecells"
         }
     }
 }

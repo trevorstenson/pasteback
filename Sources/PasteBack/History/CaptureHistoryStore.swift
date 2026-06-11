@@ -97,7 +97,8 @@ final class CaptureHistoryStore {
             ocrLines: [],
             axText: record.axText,
             axElements: [],
-            entities: record.detectedEntities())
+            entities: record.detectedEntities(),
+            tables: record.detectedTables())
     }
 
     /// Representation availability for a record without decoding its full PNG
@@ -113,7 +114,8 @@ final class CaptureHistoryStore {
                                   url: record.source.url.flatMap(URL.init(string:))),
             ocrText: record.ocrText,
             axText: record.axText,
-            entities: record.detectedEntities())
+            entities: record.detectedEntities(),
+            tables: record.detectedTables())
         return RepresentationBuilder().availableRepresentations(for: lightweight)
     }
 

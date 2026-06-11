@@ -21,6 +21,8 @@ struct CaptureSummary {
     let linkCount: Int
     /// Non-link entities (emails, phones, dates, paths, ticket IDs, …).
     let entityCount: Int
+    /// "R×C" of the primary recovered table, or nil when there is none.
+    let tableShape: String?
     let sourceBadge: SourceBadge
     let sourceReason: String
     let appName: String?
@@ -52,6 +54,11 @@ struct CaptureSummary {
         let links = capture.entities.filter { $0.type == .url }
         linkCount = links.count
         entityCount = capture.entities.count - links.count
+        if let table = capture.tables.first {
+            tableShape = "\(table.rowCount)×\(table.columnCount)"
+        } else {
+            tableShape = nil
+        }
 
         // Badge: AX when the canonical text is the AX harvest; mixed when the
         // text fell back to OCR but AX still contributed ground-truth entities
@@ -105,6 +112,7 @@ struct CaptureSummary {
     /// "14 lines · 3 links · 2 entities" — empty when there is nothing to count.
     var metadataText: String {
         var parts: [String] = []
+        if let tableShape { parts.append("\(tableShape) table") }
         if lineCount > 0 { parts.append("\(lineCount) \(lineCount == 1 ? "line" : "lines")") }
         if linkCount > 0 { parts.append("\(linkCount) \(linkCount == 1 ? "link" : "links")") }
         if entityCount > 0 { parts.append("\(entityCount) \(entityCount == 1 ? "entity" : "entities")") }

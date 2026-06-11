@@ -33,6 +33,16 @@
   .row { margin:6px 0; }
   .tag { display:inline-block; font-size:11px; font-weight:700; letter-spacing:.04em;
          text-transform:uppercase; color:#0071e3; background:#0071e310; padding:3px 8px; border-radius:6px; }
+  table { border-collapse:collapse; width:100%; font-size:14px; }
+  th, td { text-align:left; padding:8px 12px; border-bottom:1px solid #e5e5e7; }
+  th { font-weight:600; color:#1d1d1f; }
+  td.num { text-align:right; font-variant-numeric:tabular-nums; }
+  @media (prefers-color-scheme: dark){ th{color:#f2f2f7;} th,td{border-color:#3a3a3c;} }
+  .grid { display:grid; grid-template-columns:1.4fr 1fr 1fr; gap:0; font-size:14px; }
+  .grid > div { padding:8px 12px; border-bottom:1px solid #e5e5e7; }
+  .grid > div.head { font-weight:600; }
+  .grid > div.r { text-align:right; font-variant-numeric:tabular-nums; }
+  @media (prefers-color-scheme: dark){ .grid > div{border-color:#3a3a3c;} }
 </style>
 </head>
 <body>
@@ -104,6 +114,36 @@
     guard !name.isEmpty else { return "Hello, world!" }
     return "Hello, \(name)!"
 }</pre>
+  </div>
+
+  <div class="card">
+    <span class="tag">📊 Real &lt;table&gt; → CSV</span>
+    <h2>Pricing (semantic table)</h2>
+    <p class="hint">Lasso the whole table → expect <b>Copy as Table (CSV)</b>; paste into Numbers lands in cells.</p>
+    <table>
+      <thead>
+        <tr><th>Plan</th><th class="num">Seats</th><th class="num">Price / mo</th><th>Support</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Starter</td><td class="num">3</td><td class="num">$0</td><td>Community</td></tr>
+        <tr><td>Team</td><td class="num">25</td><td class="num">$49</td><td>Email</td></tr>
+        <tr><td>Business</td><td class="num">100</td><td class="num">$199</td><td>Priority</td></tr>
+        <tr><td>Enterprise</td><td class="num">Unlimited</td><td class="num">Custom</td><td>Dedicated</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <span class="tag">🧱 Div-grid → CSV</span>
+    <h2>Inventory (styled divs, no table role)</h2>
+    <p class="hint">A CSS grid with no <code>&lt;table&gt;</code> — exercises AX/OCR geometry inference.</p>
+    <div class="grid">
+      <div class="head">SKU</div><div class="head r">On hand</div><div class="head r">Reorder</div>
+      <div>A-1001</div><div class="r">128</div><div class="r">50</div>
+      <div>A-1002</div><div class="r">7</div><div class="r">25</div>
+      <div>B-2050</div><div class="r">0</div><div class="r">40</div>
+      <div>C-3090</div><div class="r">512</div><div class="r">100</div>
+    </div>
   </div>
 
   <div class="card">

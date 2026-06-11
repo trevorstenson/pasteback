@@ -6,6 +6,22 @@ struct OCRLine {
     let text: String
     /// Vision-normalized coordinates (0–1), origin bottom-left.
     let boundingBox: CGRect
+    /// Per-token geometry from the same Vision observation. Empty for older
+    /// fixtures / OCR providers that only expose line boxes.
+    let tokens: [OCRToken]
+
+    init(text: String, boundingBox: CGRect, tokens: [OCRToken] = []) {
+        self.text = text
+        self.boundingBox = boundingBox
+        self.tokens = tokens
+    }
+}
+
+/// A word/token recognized by Vision, with its normalized bounding box.
+struct OCRToken: Equatable {
+    let text: String
+    /// Vision-normalized coordinates (0–1), origin bottom-left.
+    let boundingBox: CGRect
 }
 
 /// An element harvested from the Accessibility tree under the capture region.

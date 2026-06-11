@@ -435,6 +435,38 @@ enum SelfTest {
         check(ocrTable?.rows.first == ["A", "B"] && ocrTable?.rows.last == ["E", "F"],
               "OCR-geometry rows are ordered top→bottom after Y flip")
 
+        // Vision often returns one observation per visual row; word boxes are
+        // what make screenshot-of-table OCR useful.
+        func token(_ x: CGFloat, _ minY: CGFloat, _ w: CGFloat, _ t: String) -> OCRToken {
+            OCRToken(text: t, boundingBox: CGRect(x: x, y: minY, width: w, height: 0.05))
+        }
+        func mergedOCRRow(_ minY: CGFloat, _ words: [(CGFloat, CGFloat, String)]) -> OCRLine {
+            let text = words.map(\.2).joined(separator: " ")
+            return OCRLine(
+                text: text,
+                boundingBox: CGRect(x: 0.08, y: minY, width: 0.84, height: 0.05),
+                tokens: words.map { token($0.0, minY, $0.1, $0.2) })
+        }
+        let mergedOCRRows = [
+            mergedOCRRow(0.85, [(0.10, 0.10, "Plan"), (0.42, 0.06, "Seats"), (0.62, 0.08, "Price")]),
+            mergedOCRRow(0.65, [(0.10, 0.12, "Starter"), (0.42, 0.03, "3"), (0.62, 0.05, "$0")]),
+            mergedOCRRow(0.45, [(0.10, 0.10, "Team"), (0.42, 0.04, "12"), (0.62, 0.07, "$20")]),
+        ]
+        let mergedOCRTable = tableRecognizer.inferFromOCR(lines: mergedOCRRows)
+        check(mergedOCRTable?.rows == [["Plan", "Seats", "Price"], ["Starter", "3", "$0"], ["Team", "12", "$20"]],
+              "TableRecognizer recovers a table from Vision merged-row OCR using word boxes")
+
+        // A single spanning/caption cell should not collapse every column.
+        let spanningGrid = [
+            gridEl(0, -30, "Quarterly plan summary across all columns"),
+            gridEl(0, 0, "Plan"),  gridEl(200, 0, "Qty"),
+            gridEl(0, 30, "Apple"), gridEl(200, 30, "3"),
+            gridEl(0, 60, "Pear"),  gridEl(200, 60, "12"),
+        ]
+        let spanningTable = tableRecognizer.inferFromAX(elements: spanningGrid)
+        check(spanningTable?.columnCount == 2,
+              "TableRecognizer keeps columns when one row spans the gutter")
+
         // Multi-column prose must NOT be read as a table (median cell > ~40 chars).
         let proseGrid = [
             gridEl(0, 0, "The quick brown fox jumps over the lazy dog every morning"),
@@ -461,6 +493,14 @@ enum SelfTest {
         // Markdown pipe table.
         let md = TableFormatter.markdown(TableData(headers: ["H1", "H2"], rows: [["a", "b"]], source: .ax))
         check(md == "| H1 | H2 |\n| --- | --- |\n| a | b |", "TableFormatter emits a Markdown pipe table")
+        let markdownCapture = CapturedScreenshot(
+            image: image,
+            ocrText: "Intro paragraph",
+            tables: [TableData(headers: ["H"], rows: [["a"]], source: .ocr)])
+        let markdownPayload = RepresentationBuilder().payload(for: .markdown, from: markdownCapture)
+        let markdownText = markdownPayload.flatMap { String(data: $0.data, encoding: .utf8) } ?? ""
+        check(markdownText.contains("Intro paragraph") && markdownText.contains("| H |"),
+              "Markdown table payload preserves surrounding text")
 
         // TSV rides the plain-text flavor when a table is the primary (cells, not
         // one column) and an explicit CSV type rides alongside.
@@ -481,6 +521,14 @@ enum SelfTest {
               "Copy as Table leads the copy group; Image stays last")
         check(actionIDs(tableCapture).contains("save-csv"),
               "ActionResolver offers Save CSV for a table capture")
+        check(actionIDs(tableCapture).first != "save-csv",
+              "Geometry-inferred tables do not promote Save CSV ahead of copy actions")
+        let structuralTableCapture = CapturedScreenshot(
+            image: image,
+            ocrText: "",
+            tables: [TableData(headers: nil, rows: [["A", "B"], ["C", "D"]], source: .ax)])
+        check(actionIDs(structuralTableCapture).first == "save-csv",
+              "AX-structural tables can lead with Save CSV")
         let tableSummary = CaptureSummary(capture: tableCapture)
         check(tableSummary.tableShape == "2×2" && tableSummary.metadataText.contains("2×2 table"),
               "summary reports the table shape")

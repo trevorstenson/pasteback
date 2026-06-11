@@ -83,7 +83,9 @@ struct RepresentationBuilder {
             return pngData(from: capture.image).map { Payload(type: .png, data: $0) }
         case .markdown:
             if let table = capture.tables.first {
-                return Payload(type: .string, data: Data(TableFormatter.markdown(table).utf8))
+                let markdownTable = TableFormatter.markdown(table)
+                let output = text.isEmpty ? markdownTable : "\(text)\n\n\(markdownTable)"
+                return Payload(type: .string, data: Data(output.utf8))
             }
             guard !text.isEmpty else { return nil }
             return Payload(type: .string, data: Data(text.utf8))

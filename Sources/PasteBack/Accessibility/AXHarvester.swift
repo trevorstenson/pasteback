@@ -106,6 +106,9 @@ final class AXHarvester {
                 sourceText: element.text ?? element.url!.absoluteString,
                 boundingBox: element.frame, source: .ax)
         }
+        if tables.count > 1 {
+            Log.write("ax tables: harvested \(tables.count), coordinator will use first for CSV")
+        }
         return Result(text: text, elements: collected, entities: entities, tables: tables,
                       retryCount: retryCount, pageURL: pageURL, ownerPID: dominant,
                       ownerPIDs: owners.ordered)
@@ -243,7 +246,8 @@ final class AXHarvester {
     /// row's cells left→right, and pad to a rectangular grid. Headers come from
     /// `AXColumnHeaderUIElements`/`AXHeader` when the app exposes them.
     private func harvestTable(_ table: AXUIElement, rect: CGRect) -> TableData? {
-        let rowEls = (elements(of: table, "AXRows") ?? [])
+        let rowEls = (elements(of: table, "AXVisibleRows")
+                      ?? elements(of: table, "AXRows") ?? [])
             .filter { (string($0, kAXRoleAttribute) ?? "").contains("Row") }
         let candidateRows = rowEls.isEmpty
             ? children(of: table).filter { (string($0, kAXRoleAttribute) ?? "").contains("Row") }
@@ -251,16 +255,18 @@ final class AXHarvester {
 
         var grid: [[String]] = []
         for row in candidateRows {
-            guard let frame = frame(of: row), frame.intersects(rect) else { continue }
-            let cells = children(of: row)
+            guard let rowFrame = frame(of: row), rowFrame.intersects(rect) else { continue }
+            let cells = children(of: row).sorted {
+                (frame(of: $0)?.minX ?? 0) < (frame(of: $1)?.minX ?? 0)
+            }
             let texts = cells.map { cellText($0) }
             if texts.contains(where: { !$0.isEmpty }) { grid.append(texts) }
         }
         guard grid.count >= 2 else { return nil }
 
         let headerEls = elements(of: table, "AXColumnHeaderUIElements")
-            ?? elements(of: table, "AXHeader")
-        let headers = headerEls?.compactMap { bestText(of: $0) } ?? []
+            ?? element(of: table, "AXHeader").map { children(of: $0) }
+        let headers = headerEls?.map { cellText($0) } ?? []
 
         let width = max(headers.count, grid.map(\.count).max() ?? 0)
         let padded = grid.map { row -> [String] in
@@ -403,6 +409,15 @@ final class AXHarvester {
         guard AXUIElementCopyAttributeValue(element, attribute as CFString, &ref) == .success
         else { return nil }
         return ref as? [AXUIElement]
+    }
+
+    /// A single element attribute by name (AXHeader, …).
+    private func element(of element: AXUIElement, _ attribute: String) -> AXUIElement? {
+        var ref: AnyObject?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &ref) == .success
+        else { return nil }
+        guard let ref, CFGetTypeID(ref) == AXUIElementGetTypeID() else { return nil }
+        return (ref as! AXUIElement)
     }
 
     private func url(of element: AXUIElement) -> URL? {

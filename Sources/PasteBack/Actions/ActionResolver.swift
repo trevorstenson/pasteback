@@ -19,10 +19,15 @@ struct ActionResolver {
         // strong composite (QR / contact) is present — those are clearly the goal
         // even in a longer selection.
         let isFocused = capture.canonicalText.count <= 80
+        let hasStructuralTable = capture.tables.first?.source == .ax
+        let hasGeometryOnlyTableIntent = capture.tables.first?.source == .ocr
+            && intent.contains { $0.id == "save-csv" }
+        let focusCanLead = isFocused && !hasGeometryOnlyTableIntent
         let leadsWithStrong = intent.contains {
-            $0.id == "qr-open" || $0.id == "qr-copy" || $0.id == "save-contact" || $0.id == "save-csv"
+            $0.id == "qr-open" || $0.id == "qr-copy" || $0.id == "save-contact"
+                || ($0.id == "save-csv" && hasStructuralTable)
         }
-        return ((isFocused || leadsWithStrong) && !intent.isEmpty) ? intent + copies : copies + intent
+        return ((focusCanLead || leadsWithStrong) && !intent.isEmpty) ? intent + copies : copies + intent
     }
 
     // MARK: - Side-effecting (intent) actions  (priority order)
@@ -116,7 +121,17 @@ struct ActionResolver {
             try TableFormatter.csv(table).write(to: url, atomically: true, encoding: .utf8)
             return url
         } catch {
-            return nil
+            Log.write("csv save failed: url=\(url.path) error=\(error)")
+            let fallback = URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("pasteback-table-\(stamp).csv")
+            do {
+                try TableFormatter.csv(table).write(to: fallback, atomically: true, encoding: .utf8)
+                Log.write("csv save fallback: url=\(fallback.path)")
+                return fallback
+            } catch {
+                Log.write("csv save fallback failed: url=\(fallback.path) error=\(error)")
+                return nil
+            }
         }
     }
 

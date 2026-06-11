@@ -6,9 +6,9 @@ import CoreGraphics
 /// fully covered by `--selftest` without a live screen:
 ///   • rung 2 — AX leaves (ground-truth text, screen-point frames)
 ///   • rung 3 — OCR lines (pixel floor, Vision-normalized boxes)
-/// Both feed one coordinate-agnostic inference (`infer`) that bands rows, merges
-/// column intervals, and rejects multi-column *prose* so we never mistake
-/// reflowed paragraphs for a table.
+/// Both feed one coordinate-agnostic inference (`infer`) that bands rows, finds
+/// mostly-empty vertical gutters, and rejects multi-column *prose* so we never
+/// mistake reflowed paragraphs for a table.
 struct TableRecognizer {
 
     /// One positioned text run in a top-left reading space (y grows downward).
@@ -30,17 +30,24 @@ struct TableRecognizer {
         return infer(cells: cells, source: .ax)
     }
 
-    /// Rung 3: geometry inference over OCR lines. Vision boxes are normalized
-    /// (0–1, origin bottom-left); flip Y into the top-left reading space.
+    /// Rung 3: geometry inference over OCR tokens when available, falling back
+    /// to line boxes for fixtures/providers that only expose line geometry.
+    /// Vision boxes are normalized (0–1, origin bottom-left); flip Y into the
+    /// top-left reading space.
     func inferFromOCR(lines: [OCRLine]) -> TableData? {
-        let cells = lines.compactMap { line -> Cell? in
+        let tokenCells = lines.flatMap { line -> [Cell] in
+            line.tokens.compactMap { token in
+                let text = token.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !text.isEmpty else { return nil }
+                return Cell(rect: Self.topLeftRect(fromVisionBox: token.boundingBox), text: text)
+            }
+        }
+        let lineCells = lines.compactMap { line -> Cell? in
             let text = line.text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { return nil }
-            let b = line.boundingBox
-            let rect = CGRect(x: b.minX, y: 1 - b.maxY, width: b.width, height: b.height)
-            return Cell(rect: rect, text: text)
+            return Cell(rect: Self.topLeftRect(fromVisionBox: line.boundingBox), text: text)
         }
-        return infer(cells: cells, source: .ocr)
+        return infer(cells: tokenCells.count >= 6 ? tokenCells : lineCells, source: .ocr)
     }
 
     // MARK: - Shared inference
@@ -51,29 +58,37 @@ struct TableRecognizer {
         let rowBands = bandRows(cells)
         guard rowBands.count >= 3 else { return nil }
 
-        let columns = columnBands(cells)
+        let columns = columnBands(rowBands: rowBands)
         guard columns.count >= 2 else { return nil }
 
         // Assemble rectangular grid, top→bottom rows, left→right columns.
         var grid: [[String]] = []
         for band in rowBands {
             var cols = Array(repeating: [String](), count: columns.count)
-            for cell in band {
+            for cell in band.sorted(by: { $0.rect.minX < $1.rect.minX }) {
                 let index = columnIndex(for: cell.rect.midX, in: columns)
                 cols[index].append(cell.text)
             }
             grid.append(cols.map { $0.joined(separator: " ") })
         }
 
-        // ≥80% of rows must populate ≥2 columns — a real grid, not a list with a
-        // stray second token.
-        let populated = grid.filter { row in row.filter { !$0.isEmpty }.count >= 2 }.count
-        guard Double(populated) / Double(grid.count) >= 0.8 else { return nil }
+        // Sparse rows are usually captions/notes caught inside the lasso. Keep
+        // the table core when at least three real rows remain.
+        let populatedGrid = grid.filter { row in row.filter { !$0.isEmpty }.count >= 2 }
+        guard populatedGrid.count >= 3 else { return nil }
+        if Double(populatedGrid.count) / Double(grid.count) < 0.8 {
+            guard Double(populatedGrid.count) / Double(grid.count) >= 0.6 else { return nil }
+            grid = populatedGrid
+        }
 
-        // Reject multi-column prose: table cells are short. Use the median of
-        // non-empty cell lengths so a single long cell can't sink a real table.
+        // Reject multi-column prose: table cells are usually short. Strong edge
+        // alignment can override this for real tables with description columns.
         let lengths = grid.flatMap { $0 }.filter { !$0.isEmpty }.map(\.count).sorted()
-        guard !lengths.isEmpty, lengths[lengths.count / 2] <= 40 else { return nil }
+        guard !lengths.isEmpty else { return nil }
+        let hasStrongAlignment = Self.hasStrongColumnAlignment(rowBands: rowBands, columns: columns)
+        let shortCellRatio = Double(lengths.filter { $0 <= 40 }.count) / Double(lengths.count)
+        guard lengths[lengths.count / 2] <= 40
+                || (hasStrongAlignment && shortCellRatio >= 0.5) else { return nil }
 
         return TableData(headers: nil, rows: grid, source: source)
     }
@@ -94,27 +109,58 @@ struct TableRecognizer {
                 bands[bands.count - 1].append(cell)
             }
         }
-        return bands
+        return bands.map { $0.sorted(by: { $0.rect.minX < $1.rect.minX }) }
     }
 
-    /// Merge cell X-intervals into column bands; a horizontal gutter wider than
-    /// `gap` starts a new column. Merging intervals (not just left edges) keeps
-    /// right-aligned numeric columns in one band.
-    private func columnBands(_ cells: [Cell]) -> [(lo: CGFloat, hi: CGFloat)] {
+    /// Find column bands from a gutter profile. A gutter is an x-range where all
+    /// or nearly all rows have no cell; one spanning/caption cell can dirty its
+    /// own row without vetoing the split for the whole table.
+    private func columnBands(rowBands: [[Cell]]) -> [(lo: CGFloat, hi: CGFloat)] {
+        let cells = rowBands.flatMap { $0 }
         let minX = cells.map(\.rect.minX).min()!
         let maxX = cells.map(\.rect.maxX).max()!
-        let gap = max((maxX - minX) * 0.02, 0.001)
+        let span = maxX - minX
+        guard span > 0 else { return [] }
+        let widths = cells.map(\.rect.width).sorted()
+        let medianWidth = widths[widths.count / 2]
+        let minGutterWidth = max(span * 0.04, medianWidth * 0.15, 0.001)
 
-        var bands: [(lo: CGFloat, hi: CGFloat)] = []
-        for cell in cells.sorted(by: { $0.rect.minX < $1.rect.minX }) {
-            if var last = bands.last, cell.rect.minX <= last.hi + gap {
-                last.hi = max(last.hi, cell.rect.maxX)
-                bands[bands.count - 1] = last
-            } else {
-                bands.append((cell.rect.minX, cell.rect.maxX))
+        let edges = Array(Set(cells.flatMap { [$0.rect.minX, $0.rect.maxX] }))
+            .sorted()
+        guard edges.count >= 2 else { return [] }
+
+        let rowCount = rowBands.count
+        let requiredClearRows = max(1, min(rowCount - 1, Int(ceil(Double(rowCount) * 0.85))))
+        var gutters: [(lo: CGFloat, hi: CGFloat)] = []
+        for pair in zip(edges, edges.dropFirst()) {
+            let lo = pair.0
+            let hi = pair.1
+            guard hi - lo >= minGutterWidth else { continue }
+            let clearRows = rowBands.filter { row in
+                !row.contains { $0.rect.maxX > lo && $0.rect.minX < hi }
+            }.count
+            if clearRows >= requiredClearRows {
+                gutters.append((lo, hi))
             }
         }
-        return bands
+
+        let mergedGutters = gutters.reduce(into: [(lo: CGFloat, hi: CGFloat)]()) { out, gutter in
+            if var last = out.last, gutter.lo <= last.hi + minGutterWidth {
+                last.hi = max(last.hi, gutter.hi)
+                out[out.count - 1] = last
+            } else {
+                out.append(gutter)
+            }
+        }
+        let boundaries = mergedGutters.map { ($0.lo + $0.hi) / 2 }
+        var bands: [(lo: CGFloat, hi: CGFloat)] = []
+        var lo = minX
+        for boundary in boundaries where boundary > lo && boundary < maxX {
+            bands.append((lo, boundary))
+            lo = boundary
+        }
+        bands.append((lo, maxX))
+        return bands.filter { $0.hi - $0.lo > 0 }
     }
 
     private func columnIndex(for x: CGFloat, in bands: [(lo: CGFloat, hi: CGFloat)]) -> Int {
@@ -122,6 +168,31 @@ struct TableRecognizer {
         return bands.enumerated().min {
             abs(($0.1.lo + $0.1.hi) / 2 - x) < abs(($1.1.lo + $1.1.hi) / 2 - x)
         }!.offset
+    }
+
+    private static func topLeftRect(fromVisionBox box: CGRect) -> CGRect {
+        CGRect(x: box.minX, y: 1 - box.maxY, width: box.width, height: box.height)
+    }
+
+    private static func hasStrongColumnAlignment(
+        rowBands: [[Cell]],
+        columns: [(lo: CGFloat, hi: CGFloat)]
+    ) -> Bool {
+        var strongColumns = 0
+        for column in columns {
+            let lefts = rowBands.compactMap { row -> CGFloat? in
+                row.first { $0.rect.midX >= column.lo && $0.rect.midX <= column.hi }?.rect.minX
+            }
+            guard lefts.count >= max(3, Int(ceil(Double(rowBands.count) * 0.6))) else { continue }
+            let sorted = lefts.sorted()
+            let median = sorted[sorted.count / 2]
+            let deviations = sorted.map { abs($0 - median) }.sorted()
+            let medianDeviation = deviations[deviations.count / 2]
+            if medianDeviation <= max((column.hi - column.lo) * 0.08, 0.003) {
+                strongColumns += 1
+            }
+        }
+        return strongColumns >= 2
     }
 }
 

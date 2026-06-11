@@ -20,7 +20,7 @@ struct ActionResolver {
         // even in a longer selection.
         let isFocused = capture.canonicalText.count <= 80
         let leadsWithStrong = intent.contains {
-            $0.id == "qr-open" || $0.id == "qr-copy" || $0.id == "save-contact"
+            $0.id == "qr-open" || $0.id == "qr-copy" || $0.id == "save-contact" || $0.id == "save-csv"
         }
         return ((isFocused || leadsWithStrong) && !intent.isEmpty) ? intent + copies : copies + intent
     }
@@ -29,6 +29,18 @@ struct ActionResolver {
 
     private func intentActions(for capture: CapturedScreenshot) -> [CaptureAction] {
         var actions: [CaptureAction] = []
+
+        // Table → save a CSV file and reveal it (file-handoff; a save panel would
+        // force activation and steal focus from the non-activating HUD).
+        if let table = capture.tables.first {
+            actions.append(CaptureAction(
+                id: "save-csv", title: "Save CSV…", symbol: "tablecells.badge.ellipsis",
+                isStateful: false) {
+                    if let url = Self.writeCSVToDownloads(table) {
+                        NSWorkspace.shared.activateFileViewerSelecting([url])
+                    }
+                })
+        }
 
         // QR / barcode: open if it's a link, else copy the decoded payload.
         if let payload = barcodeValue(capture) {
@@ -94,6 +106,20 @@ struct ActionResolver {
         return actions
     }
 
+    /// Writes a table as `~/Downloads/pasteback-table-<timestamp>.csv`.
+    static func writeCSVToDownloads(_ table: TableData) -> URL? {
+        let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Downloads")
+        let stamp = Int(Date().timeIntervalSince1970)
+        let url = downloads.appendingPathComponent("pasteback-table-\(stamp).csv")
+        do {
+            try TableFormatter.csv(table).write(to: url, atomically: true, encoding: .utf8)
+            return url
+        } catch {
+            return nil
+        }
+    }
+
     private func barcodeValue(_ capture: CapturedScreenshot) -> String? {
         capture.entities.first { if case .barcode = $0.type { return true }; return false }?.value
     }
@@ -112,6 +138,11 @@ struct ActionResolver {
         // If code was detected, lead the copy actions with the code block.
         if let idx = reps.firstIndex(of: .codeBlock) {
             reps.remove(at: idx); reps.insert(.codeBlock, at: 0)
+        }
+        // A table is the flagship payload — lead the copy group with it (above
+        // code), so "Copy as Table (CSV)" is the first thing the user sees.
+        if let idx = reps.firstIndex(of: .csv) {
+            reps.remove(at: idx); reps.insert(.csv, at: 0)
         }
         // The universal revert: Image is always offered and always LAST in the
         // copy group, regardless of ranking — a predictable position builds

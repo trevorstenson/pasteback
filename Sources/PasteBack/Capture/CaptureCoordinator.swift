@@ -9,6 +9,7 @@ final class CaptureCoordinator {
     private let ocr = OCRService()
     private let axHarvester = AXHarvester()
     private let entityDetector = EntityDetector()
+    private let tableRecognizer = TableRecognizer()
     private let technicalRecognizer = TechnicalContentRecognizer()
     private let barcodeService = BarcodeService()
     private let writer = PasteboardWriter()
@@ -84,6 +85,20 @@ final class CaptureCoordinator {
             let entities = self.entityDetector.detect(
                 in: canonicalText, seed: ax.entities + technicalEntities + barcodeEntities)
 
+            // Table detection ladder (fidelity order): AX structural truth →
+            // AX geometry inference → OCR geometry floor. Short-circuit at the
+            // first rung that yields a confident table.
+            let tables: [TableData]
+            if let structural = ax.tables.first {
+                tables = [structural]
+            } else if let axGeometry = self.tableRecognizer.inferFromAX(elements: ax.elements) {
+                tables = [axGeometry]
+            } else if let ocrGeometry = self.tableRecognizer.inferFromOCR(lines: ocrResult.lines) {
+                tables = [ocrGeometry]
+            } else {
+                tables = []
+            }
+
             let screenshot = CapturedScreenshot(
                 image: result.image,
                 captureRect: result.rect,
@@ -93,7 +108,8 @@ final class CaptureCoordinator {
                 axText: ax.text,
                 axElements: ax.elements,
                 axOutcome: ax.outcome,
-                entities: entities
+                entities: entities,
+                tables: tables
             )
             Log.write("""
             capture: ownerApp=\(source.appName ?? "?") frontApp=\(result.source.appName ?? "?") \
@@ -105,6 +121,7 @@ final class CaptureCoordinator {
             axText=\(ax.text.count)chars ocrText=\(ocrResult.text.count)chars \
             canonicalText=\(canonicalText.count)chars entities=\(entities.count) \
             axLinks=\(ax.entities.count) ownerApps=\(ax.ownerPIDs.count) barcodes=\(barcodeEntities.count) \
+            tables=\(tables.first.map { "\($0.rowCount)x\($0.columnCount)(\($0.source == .ax ? "ax" : "ocr"))" } ?? "0") \
             technical=\(technicalEntities.first.map { "\($0.type)" } ?? "nil") \
             pageURL=\(ax.pageURL?.absoluteString ?? "nil") \
             firstURL=\(entities.first { $0.type == .url }?.value ?? "nil")
@@ -126,24 +143,24 @@ final class CaptureCoordinator {
     /// and have Accessibility permission. Empty otherwise → OCR floor stands.
     private struct AXResult {
         let text: String; let elements: [AXElement]
-        let entities: [DetectedEntity]; let pageURL: URL?
+        let entities: [DetectedEntity]; let tables: [TableData]; let pageURL: URL?
         let ownerPID: pid_t?; let ownerPIDs: [pid_t]
         let outcome: AXOutcome
     }
     private func harvestAX(_ result: CaptureResult) -> AXResult {
         guard let rect = result.rect else {
-            return AXResult(text: "", elements: [], entities: [], pageURL: nil,
+            return AXResult(text: "", elements: [], entities: [], tables: [], pageURL: nil,
                             ownerPID: nil, ownerPIDs: [], outcome: .notAttempted)
         }
         guard PermissionService.hasAccessibility() else {
-            return AXResult(text: "", elements: [], entities: [], pageURL: nil,
+            return AXResult(text: "", elements: [], entities: [], tables: [], pageURL: nil,
                             ownerPID: nil, ownerPIDs: [], outcome: .noPermission)
         }
         if appQuirks.shouldSkipAX(appName: result.source.appName,
                                   bundleIdentifier: result.source.bundleIdentifier) {
             Log.write("ax skipped: app=\(result.source.appName ?? "?") bundle=\(result.source.bundleIdentifier ?? "?")")
             let app = result.source.appName ?? "This app"
-            return AXResult(text: "", elements: [], entities: [], pageURL: nil,
+            return AXResult(text: "", elements: [], entities: [], tables: [], pageURL: nil,
                             ownerPID: nil, ownerPIDs: [],
                             outcome: .skipped(reason: "\(app) exposes unscoped Accessibility text"))
         }
@@ -154,8 +171,8 @@ final class CaptureCoordinator {
             ? .emptyTree(retried: h.retryCount > 0)
             : .harvested(elementCount: h.elements.count, retried: h.retryCount > 0)
         return AXResult(text: h.text, elements: h.elements, entities: h.entities,
-                        pageURL: h.pageURL, ownerPID: h.ownerPID, ownerPIDs: h.ownerPIDs,
-                        outcome: outcome)
+                        tables: h.tables, pageURL: h.pageURL, ownerPID: h.ownerPID,
+                        ownerPIDs: h.ownerPIDs, outcome: outcome)
     }
 
     func recopy(as representation: Representation) {

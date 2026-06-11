@@ -16,6 +16,8 @@ final class AXHarvester {
         let text: String
         let elements: [AXElement]
         let entities: [DetectedEntity]
+        /// Tables recovered from explicit AX table/outline roles (ground truth).
+        let tables: [TableData]
         let retryCount: Int
         /// The page/document URL (browser tab) — provenance, not a selected link.
         let pageURL: URL?
@@ -40,17 +42,19 @@ final class AXHarvester {
     /// doesn't respond to position queries).
     func harvest(rect: CGRect, fallbackPID: pid_t?) -> Result {
         guard AXIsProcessTrusted() else {
-            return Result(text: "", elements: [], entities: [], retryCount: 0,
+            return Result(text: "", elements: [], entities: [], tables: [], retryCount: 0,
                           pageURL: nil, ownerPID: nil, ownerPIDs: [])
         }
 
         let owners = owningPIDs(in: rect, fallback: fallbackPID)
         var collected: [AXElement] = []
+        var tables: [TableData] = []
         var retryCount = 0
         for pid in owners.ordered {
             let appInfo = NSRunningApplication(processIdentifier: pid)
             let first = harvestApp(pid: pid, rect: rect)
             collected.append(contentsOf: first.elements)
+            tables.append(contentsOf: first.tables)
 
             let shouldRetry = first.elements.isEmpty
                 && (first.sawWebArea || quirks.needsNudge(
@@ -64,6 +68,7 @@ final class AXHarvester {
                 let second = harvestApp(pid: pid, rect: rect)
                 retryCount += 1
                 collected.append(contentsOf: second.elements)
+                tables.append(contentsOf: second.tables)
                 Log.write("""
                 ax retry: pid=\(pid) app=\(appInfo?.localizedName ?? "?") \
                 bundle=\(appInfo?.bundleIdentifier ?? "?") \
@@ -101,18 +106,23 @@ final class AXHarvester {
                 sourceText: element.text ?? element.url!.absoluteString,
                 boundingBox: element.frame, source: .ax)
         }
-        return Result(text: text, elements: collected, entities: entities,
+        return Result(text: text, elements: collected, entities: entities, tables: tables,
                       retryCount: retryCount, pageURL: pageURL, ownerPID: dominant,
                       ownerPIDs: owners.ordered)
     }
 
     private struct AppHarvest {
         let elements: [AXElement]
+        let tables: [TableData]
         let sawWebArea: Bool
     }
 
     private struct WalkStats {
         var sawWebArea = false
+        var tables: [TableData] = []
+        /// Depth at which the current table subtree began (nil = not inside one),
+        /// so nested tables aren't double-harvested.
+        var tableDepth: Int?
     }
 
     private func harvestApp(pid: pid_t, rect: CGRect) -> AppHarvest {
@@ -123,7 +133,7 @@ final class AXHarvester {
         var elements: [AXElement] = []
         walk(app, sourcePID: pid, rect: rect, depth: 0, visited: &visited,
              stats: &stats, into: &elements)
-        return AppHarvest(elements: elements, sawWebArea: stats.sawWebArea)
+        return AppHarvest(elements: elements, tables: stats.tables, sawWebArea: stats.sawWebArea)
     }
 
     // MARK: - Pixel-ownership discovery (coverage-weighted)
@@ -201,6 +211,16 @@ final class AXHarvester {
         let role = string(element, kAXRoleAttribute) ?? ""
         if role == "AXWebArea" { stats.sawWebArea = true }
 
+        // Structural table truth (rung 1): harvest the topmost table/outline that
+        // intersects the lasso. Keep walking afterward so cell text still feeds
+        // the general text reps (a table plus surrounding prose stays intact).
+        if stats.tableDepth == nil, (role == "AXTable" || role == "AXOutline"),
+           let frame, frame.intersects(rect) {
+            if let table = harvestTable(element, rect: rect) { stats.tables.append(table) }
+            stats.tableDepth = depth
+        }
+        defer { if stats.tableDepth == depth { stats.tableDepth = nil } }
+
         // Collect text from leaves and links (avoids container text duplicating children).
         if let frame, frame.intersects(rect), link != nil || kids.isEmpty {
             let text = bestText(of: element)
@@ -214,6 +234,63 @@ final class AXHarvester {
             walk(child, sourcePID: sourcePID, rect: rect, depth: depth + 1,
                  visited: &visited, stats: &stats, into: &collected)
         }
+    }
+
+    // MARK: - Structural table harvest (rung 1)
+
+    /// Recover a `TableData` from an `AXTable`/`AXOutline`: clip to rows that
+    /// intersect the lasso (partial selection is the natural gesture), read each
+    /// row's cells left→right, and pad to a rectangular grid. Headers come from
+    /// `AXColumnHeaderUIElements`/`AXHeader` when the app exposes them.
+    private func harvestTable(_ table: AXUIElement, rect: CGRect) -> TableData? {
+        let rowEls = (elements(of: table, "AXRows") ?? [])
+            .filter { (string($0, kAXRoleAttribute) ?? "").contains("Row") }
+        let candidateRows = rowEls.isEmpty
+            ? children(of: table).filter { (string($0, kAXRoleAttribute) ?? "").contains("Row") }
+            : rowEls
+
+        var grid: [[String]] = []
+        for row in candidateRows {
+            guard let frame = frame(of: row), frame.intersects(rect) else { continue }
+            let cells = children(of: row)
+            let texts = cells.map { cellText($0) }
+            if texts.contains(where: { !$0.isEmpty }) { grid.append(texts) }
+        }
+        guard grid.count >= 2 else { return nil }
+
+        let headerEls = elements(of: table, "AXColumnHeaderUIElements")
+            ?? elements(of: table, "AXHeader")
+        let headers = headerEls?.compactMap { bestText(of: $0) } ?? []
+
+        let width = max(headers.count, grid.map(\.count).max() ?? 0)
+        let padded = grid.map { row -> [String] in
+            row.count >= width ? row : row + Array(repeating: "", count: width - row.count)
+        }
+        return TableData(headers: headers.isEmpty ? nil : headers,
+                         rows: padded, source: .ax)
+    }
+
+    /// Text of a single cell — its own value, else its descendant leaf text
+    /// joined (cells usually wrap an `AXStaticText`/`AXLink` child).
+    private func cellText(_ cell: AXUIElement) -> String {
+        if let t = bestText(of: cell)?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty {
+            return t
+        }
+        var parts: [String] = []
+        collectLeafText(cell, depth: 0, into: &parts)
+        return parts.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func collectLeafText(_ element: AXUIElement, depth: Int, into parts: inout [String]) {
+        if depth > 6 { return }
+        let kids = children(of: element)
+        if kids.isEmpty {
+            if let t = bestText(of: element)?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty {
+                parts.append(t)
+            }
+            return
+        }
+        for kid in kids { collectLeafText(kid, depth: depth + 1, into: &parts) }
     }
 
     // MARK: - Text assembly (reading order: top→bottom, left→right)
@@ -318,6 +395,14 @@ final class AXHarvester {
         guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &ref) == .success
         else { return [] }
         return (ref as? [AXUIElement]) ?? []
+    }
+
+    /// An element-array attribute by name (AXRows, AXColumnHeaderUIElements, …).
+    private func elements(of element: AXUIElement, _ attribute: String) -> [AXUIElement]? {
+        var ref: AnyObject?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &ref) == .success
+        else { return nil }
+        return ref as? [AXUIElement]
     }
 
     private func url(of element: AXUIElement) -> URL? {

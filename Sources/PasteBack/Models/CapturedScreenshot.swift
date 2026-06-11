@@ -42,6 +42,23 @@ enum EntitySource {
     case ocr
 }
 
+/// A tabular region recovered from a capture: rectangular rows, an optional
+/// header, and the source rung (AX ground truth vs OCR geometry). Produced by
+/// `TableRecognizer` (geometry rungs) or `AXHarvester` (structural rung).
+struct TableData: Equatable {
+    /// Column headers, or `nil` when no header row is distinguishable.
+    let headers: [String]?
+    /// Rectangular rows; short rows are padded with `""` so every row has the
+    /// same column count.
+    let rows: [[String]]
+    let source: EntitySource
+
+    var columnCount: Int {
+        max(headers?.count ?? 0, rows.map(\.count).max() ?? 0)
+    }
+    var rowCount: Int { rows.count }
+}
+
 /// What happened when PasteBack tried to enrich a capture via Accessibility.
 /// This is deliberately small and user-facing: OCR fallback should explain why.
 enum AXOutcome: Equatable {
@@ -121,6 +138,10 @@ struct CapturedScreenshot {
 
     let entities: [DetectedEntity]
 
+    /// Tables recovered from the selection (highest-fidelity rung that produced
+    /// a confident result). Default empty — additive, nothing else depends on it.
+    let tables: [TableData]
+
     /// The canonical text for representations: AX text when it plausibly matches
     /// the selected region, else OCR. Some apps expose one giant AX leaf for an
     /// entire scrollback/document even when the user selected a tiny rect; using
@@ -149,7 +170,8 @@ struct CapturedScreenshot {
         axText: String = "",
         axElements: [AXElement] = [],
         axOutcome: AXOutcome = .notAttempted,
-        entities: [DetectedEntity] = []
+        entities: [DetectedEntity] = [],
+        tables: [TableData] = []
     ) {
         self.id = id
         self.timestamp = timestamp
@@ -162,6 +184,7 @@ struct CapturedScreenshot {
         self.axElements = axElements
         self.axOutcome = axOutcome
         self.entities = entities
+        self.tables = tables
     }
 }
 
@@ -177,4 +200,5 @@ enum Representation: Hashable, Identifiable {
     case firstEmail
     case firstPhone
     case codeBlock
+    case csv
 }

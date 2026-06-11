@@ -11,6 +11,10 @@ struct RepresentationBuilder {
         let data: Data
     }
 
+    /// UTI for explicit CSV consumers. Spreadsheets parse cells from TSV on the
+    /// plain-text flavor; this type is for apps that read CSV directly.
+    static let csvType = NSPasteboard.PasteboardType("public.comma-separated-values-text")
+
     // MARK: - Pasteboard composition
 
     func payloads(for primary: Representation, from capture: CapturedScreenshot) -> [Payload] {
@@ -25,6 +29,18 @@ struct RepresentationBuilder {
 
         case .image:
             return payload(for: .image, from: capture).map { [$0] } ?? []
+
+        case .csv:
+            guard let table = capture.tables.first else { return [] }
+            // Plain-text flavor is TSV — that's what Excel/Numbers/Sheets parse
+            // into cells on a bare ⌘V. CSV-in-plain-text would land in one column.
+            // Deliberately NO image flavor: spreadsheets prefer a PNG when present
+            // and paste it as a floating object instead of into cells. The Image
+            // revert chip is the path to paste pixels.
+            return [
+                Payload(type: .string, data: Data(TableFormatter.tsv(table).utf8)),
+                Payload(type: Self.csvType, data: Data(TableFormatter.csv(table).utf8)),
+            ]
 
         case .plainText, .markdown, .rtf, .html:
             var ordered: [Payload] = []
@@ -47,6 +63,7 @@ struct RepresentationBuilder {
 
     func availableRepresentations(for capture: CapturedScreenshot) -> [Representation] {
         var reps: [Representation] = [.image]
+        if !capture.tables.isEmpty { reps.append(.csv) }
         if !capture.canonicalText.isEmpty {
             reps.append(.plainText)
             reps.append(.markdown)
@@ -64,9 +81,18 @@ struct RepresentationBuilder {
         switch representation {
         case .image:
             return pngData(from: capture.image).map { Payload(type: .png, data: $0) }
-        case .plainText, .markdown:
+        case .markdown:
+            if let table = capture.tables.first {
+                return Payload(type: .string, data: Data(TableFormatter.markdown(table).utf8))
+            }
             guard !text.isEmpty else { return nil }
             return Payload(type: .string, data: Data(text.utf8))
+        case .plainText:
+            guard !text.isEmpty else { return nil }
+            return Payload(type: .string, data: Data(text.utf8))
+        case .csv:
+            guard let table = capture.tables.first else { return nil }
+            return Payload(type: Self.csvType, data: Data(TableFormatter.csv(table).utf8))
         case .rtf:
             return richTextData(for: capture).map { Payload(type: .rtf, data: $0) }
         case .html:

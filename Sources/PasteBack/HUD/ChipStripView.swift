@@ -58,7 +58,7 @@ struct ChipStripView: View {
                     viewModel.toggleExpanded()
                 } label: {
                     HStack(spacing: 6) {
-                        SourceBadgeView(badge: summary.sourceBadge)
+                        SourceBadgeView(badge: summary.sourceBadge, helpText: summary.sourceReason)
                         if let app = summary.appName {
                             Text("from \(app)")
                                 .font(.system(size: 10.5))
@@ -146,7 +146,7 @@ private struct PreviewRow: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .help(isExpanded ? "Collapse details (Space)" : "Show details (Space)")
+        .help(summary.sourceReason)
     }
 }
 

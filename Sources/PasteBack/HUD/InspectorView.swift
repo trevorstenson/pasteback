@@ -146,7 +146,7 @@ struct InspectorView: View {
                         .font(.system(size: 9.5))
                         .foregroundStyle(.tertiary)
                 }
-                SourceBadgeView(badge: summary.sourceBadge)
+                SourceBadgeView(badge: summary.sourceBadge, helpText: summary.sourceReason)
             }
         }
         .padding(.horizontal, 4)
@@ -216,6 +216,7 @@ struct InspectorView: View {
 /// Pill showing where a capture's content came from (the moat made visible).
 struct SourceBadgeView: View {
     let badge: CaptureSummary.SourceBadge
+    var helpText: String? = nil
 
     var body: some View {
         Text(badge.rawValue)
@@ -228,9 +229,9 @@ struct SourceBadgeView: View {
                     ? AnyShapeStyle(.quaternary)
                     : AnyShapeStyle(Color.accentColor.opacity(0.85)))
             )
-            .help(badge == .ax ? "Ground truth from the Accessibility tree"
+            .help(helpText ?? (badge == .ax ? "Ground truth from the Accessibility tree"
                   : badge == .mixed ? "OCR text enriched with Accessibility entities"
-                  : "Recognized from pixels")
+                  : "Recognized from pixels"))
     }
 }
 

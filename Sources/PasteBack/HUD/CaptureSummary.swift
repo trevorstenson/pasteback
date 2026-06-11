@@ -22,6 +22,7 @@ struct CaptureSummary {
     /// Non-link entities (emails, phones, dates, paths, ticket IDs, …).
     let entityCount: Int
     let sourceBadge: SourceBadge
+    let sourceReason: String
     let appName: String?
 
     init(capture: CapturedScreenshot) {
@@ -64,8 +65,41 @@ struct CaptureSummary {
         } else {
             sourceBadge = .ocr
         }
+        sourceReason = Self.reason(for: capture, badge: sourceBadge)
 
         appName = capture.source.appName
+    }
+
+    private static func reason(for capture: CapturedScreenshot, badge: SourceBadge) -> String {
+        switch badge {
+        case .ax:
+            if case .harvested(let count, let retried) = capture.axOutcome {
+                return retried
+                    ? "Accessibility structure recovered after retry (\(count) elements)"
+                    : "Ground truth from Accessibility (\(count) elements)"
+            }
+            return "Ground truth from Accessibility"
+        case .mixed:
+            return "OCR text enriched with Accessibility entities"
+        case .ocr:
+            if !capture.axText.isEmpty && capture.canonicalText != capture.axText {
+                return "OCR only — Accessibility text was too broad for this selection"
+            }
+            switch capture.axOutcome {
+            case .noPermission:
+                return "OCR only — Accessibility is not granted"
+            case .skipped(let reason):
+                return "OCR only — \(reason)"
+            case .emptyTree(let retried):
+                return retried
+                    ? "OCR only — Accessibility stayed empty after retry"
+                    : "OCR only — this app did not expose structure"
+            case .notAttempted:
+                return "OCR only — Accessibility was not available for this capture"
+            case .harvested:
+                return "OCR only — Accessibility did not provide usable text"
+            }
+        }
     }
 
     /// "14 lines · 3 links · 2 entities" — empty when there is nothing to count.

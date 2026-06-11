@@ -5,7 +5,7 @@ if CommandLine.arguments.contains("--selftest") {
     SelfTest.run()
 }
 if CommandLine.arguments.contains("--axprobe") {
-    AXProbe.run()
+    AXProbe.run(arguments: CommandLine.arguments)
 }
 
 // SPM executables use a top-level entry point (no @main). Bootstrap NSApplication

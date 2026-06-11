@@ -100,6 +100,8 @@ enum SelfTest {
 
         check(CaptureSummary(capture: hugeAXCap).sourceBadge == .ocr,
               "summary badge falls back to OCR on oversized-AX rejection")
+        check(CaptureSummary(capture: hugeAXCap).sourceReason.contains("too broad"),
+              "summary explains oversized AX fallback")
 
         let mixedCap = CapturedScreenshot(
             image: image, ocrText: "ocr only text",
@@ -121,6 +123,42 @@ enum SelfTest {
         check(longSummary.previewText.count <= CaptureSummary.previewLimit + 1
               && longSummary.previewText.hasSuffix("…"),
               "summary preview truncates to ~60 chars with ellipsis")
+
+        // --- Stage 5: AX reliability + honest degradation ---
+        let quirks = AppQuirks.current
+        check(quirks.shouldSkipAX(appName: "Warp", bundleIdentifier: "dev.warp.Warp-Stable"),
+              "AppQuirks skips Warp AX")
+        check(quirks.needsNudge(appName: "Google Chrome", bundleIdentifier: "com.google.Chrome"),
+              "AppQuirks marks Chromium apps as nudge candidates")
+
+        let noPermissionSummary = CaptureSummary(capture: CapturedScreenshot(
+            image: image,
+            source: CaptureSource(appName: "Arc", bundleIdentifier: "company.thebrowser.Browser",
+                                  pid: nil, url: nil),
+            ocrText: "https://example.com",
+            axOutcome: .noPermission))
+        check(noPermissionSummary.sourceReason.contains("not granted"),
+              "summary explains OCR fallback when AX permission is missing")
+
+        let skippedSummary = CaptureSummary(capture: CapturedScreenshot(
+            image: image, source: CaptureSource(appName: "Warp", bundleIdentifier: "dev.warp.Warp-Stable",
+                                                pid: nil, url: nil),
+            ocrText: "terminal output",
+            axOutcome: .skipped(reason: "Warp exposes unscoped Accessibility text")))
+        check(skippedSummary.sourceReason.contains("Warp exposes"),
+              "summary explains app-specific AX skip")
+
+        let emptyRetrySummary = CaptureSummary(capture: CapturedScreenshot(
+            image: image, ocrText: "pixel text", axOutcome: .emptyTree(retried: true)))
+        check(emptyRetrySummary.sourceReason.contains("after retry"),
+              "summary explains empty AX tree after retry")
+
+        let harvestedRetrySummary = CaptureSummary(capture: CapturedScreenshot(
+            image: image, ocrText: "ocr", axText: "ax",
+            axOutcome: .harvested(elementCount: 47, retried: true)))
+        check(harvestedRetrySummary.sourceBadge == .ax
+              && harvestedRetrySummary.sourceReason.contains("after retry"),
+              "summary reports successful AX retry")
 
         let settings = SettingsStore.shared
         settings.autoDismissSeconds = 7

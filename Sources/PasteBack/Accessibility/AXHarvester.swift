@@ -16,6 +16,7 @@ final class AXHarvester {
         let text: String
         let elements: [AXElement]
         let entities: [DetectedEntity]
+        let retryCount: Int
         /// The page/document URL (browser tab) — provenance, not a selected link.
         let pageURL: URL?
         /// PID of the app that dominates the selection (provenance + intent).
@@ -27,6 +28,7 @@ final class AXHarvester {
     private let maxDepth = 80
     private let maxElements = 6000
     private let messagingTimeout: Float = 0.2   // seconds per AX call
+    private let quirks = AppQuirks.current
 
     /// `rect` is in CoreGraphics top-left screen coordinates (same space AX uses).
     ///
@@ -38,18 +40,37 @@ final class AXHarvester {
     /// doesn't respond to position queries).
     func harvest(rect: CGRect, fallbackPID: pid_t?) -> Result {
         guard AXIsProcessTrusted() else {
-            return Result(text: "", elements: [], entities: [], pageURL: nil,
-                          ownerPID: nil, ownerPIDs: [])
+            return Result(text: "", elements: [], entities: [], retryCount: 0,
+                          pageURL: nil, ownerPID: nil, ownerPIDs: [])
         }
 
         let owners = owningPIDs(in: rect, fallback: fallbackPID)
         var collected: [AXElement] = []
+        var retryCount = 0
         for pid in owners.ordered {
-            let app = AXUIElementCreateApplication(pid)
-            AXUIElementSetMessagingTimeout(app, messagingTimeout)
-            nudgeWebAccessibility(app)
-            var visited = 0
-            walk(app, sourcePID: pid, rect: rect, depth: 0, visited: &visited, into: &collected)
+            let appInfo = NSRunningApplication(processIdentifier: pid)
+            let first = harvestApp(pid: pid, rect: rect)
+            collected.append(contentsOf: first.elements)
+
+            let shouldRetry = first.elements.isEmpty
+                && (first.sawWebArea || quirks.needsNudge(
+                    appName: appInfo?.localizedName,
+                    bundleIdentifier: appInfo?.bundleIdentifier))
+            if shouldRetry {
+                let app = AXUIElementCreateApplication(pid)
+                AXUIElementSetMessagingTimeout(app, messagingTimeout)
+                nudgeWebAccessibility(app)
+                Thread.sleep(forTimeInterval: 0.2)
+                let second = harvestApp(pid: pid, rect: rect)
+                retryCount += 1
+                collected.append(contentsOf: second.elements)
+                Log.write("""
+                ax retry: pid=\(pid) app=\(appInfo?.localizedName ?? "?") \
+                bundle=\(appInfo?.bundleIdentifier ?? "?") \
+                elems \(first.elements.count)→\(second.elements.count) \
+                sawWebArea=\(first.sawWebArea || second.sawWebArea)
+                """)
+            }
         }
         let dominant = owners.dominant
 
@@ -81,7 +102,28 @@ final class AXHarvester {
                 boundingBox: element.frame, source: .ax)
         }
         return Result(text: text, elements: collected, entities: entities,
-                      pageURL: pageURL, ownerPID: dominant, ownerPIDs: owners.ordered)
+                      retryCount: retryCount, pageURL: pageURL, ownerPID: dominant,
+                      ownerPIDs: owners.ordered)
+    }
+
+    private struct AppHarvest {
+        let elements: [AXElement]
+        let sawWebArea: Bool
+    }
+
+    private struct WalkStats {
+        var sawWebArea = false
+    }
+
+    private func harvestApp(pid: pid_t, rect: CGRect) -> AppHarvest {
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, messagingTimeout)
+        var visited = 0
+        var stats = WalkStats()
+        var elements: [AXElement] = []
+        walk(app, sourcePID: pid, rect: rect, depth: 0, visited: &visited,
+             stats: &stats, into: &elements)
+        return AppHarvest(elements: elements, sawWebArea: stats.sawWebArea)
     }
 
     // MARK: - Pixel-ownership discovery (coverage-weighted)
@@ -146,7 +188,7 @@ final class AXHarvester {
     // MARK: - Tree walk
 
     private func walk(_ element: AXUIElement, sourcePID: pid_t, rect: CGRect, depth: Int,
-                      visited: inout Int, into collected: inout [AXElement]) {
+                      visited: inout Int, stats: inout WalkStats, into collected: inout [AXElement]) {
         if depth > maxDepth || visited > maxElements { return }
         visited += 1
 
@@ -157,6 +199,7 @@ final class AXHarvester {
         let kids = children(of: element)
         let link = url(of: element)
         let role = string(element, kAXRoleAttribute) ?? ""
+        if role == "AXWebArea" { stats.sawWebArea = true }
 
         // Collect text from leaves and links (avoids container text duplicating children).
         if let frame, frame.intersects(rect), link != nil || kids.isEmpty {
@@ -169,7 +212,7 @@ final class AXHarvester {
 
         for child in kids {
             walk(child, sourcePID: sourcePID, rect: rect, depth: depth + 1,
-                 visited: &visited, into: &collected)
+                 visited: &visited, stats: &stats, into: &collected)
         }
     }
 

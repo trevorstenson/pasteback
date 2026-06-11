@@ -42,6 +42,31 @@ enum EntitySource {
     case ocr
 }
 
+/// What happened when PasteBack tried to enrich a capture via Accessibility.
+/// This is deliberately small and user-facing: OCR fallback should explain why.
+enum AXOutcome: Equatable {
+    case notAttempted
+    case harvested(elementCount: Int, retried: Bool)
+    case noPermission
+    case skipped(reason: String)
+    case emptyTree(retried: Bool)
+
+    var logValue: String {
+        switch self {
+        case .notAttempted:
+            return "notAttempted"
+        case .harvested(let elementCount, let retried):
+            return "harvested(\(elementCount),retry=\(retried ? 1 : 0))"
+        case .noPermission:
+            return "noPermission"
+        case .skipped(let reason):
+            return "skipped(\(reason))"
+        case .emptyTree(let retried):
+            return "emptyTree(retry=\(retried ? 1 : 0))"
+        }
+    }
+}
+
 struct DetectedEntity {
     let type: EntityType
     /// Canonicalized form (e.g. URL with scheme).
@@ -92,6 +117,7 @@ struct CapturedScreenshot {
     // AX enrichment (empty until M1).
     let axText: String
     let axElements: [AXElement]
+    let axOutcome: AXOutcome
 
     let entities: [DetectedEntity]
 
@@ -100,6 +126,10 @@ struct CapturedScreenshot {
     /// entire scrollback/document even when the user selected a tiny rect; using
     /// that would make the capture feel unrelated to the lasso.
     var canonicalText: String {
+        Self.canonicalText(ocrText: ocrText, axText: axText)
+    }
+
+    static func canonicalText(ocrText: String, axText: String) -> String {
         guard !axText.isEmpty else { return ocrText }
         guard !ocrText.isEmpty else { return axText }
         if axText.count > 10_000 && axText.count > ocrText.count * 20 {
@@ -118,6 +148,7 @@ struct CapturedScreenshot {
         ocrLines: [OCRLine] = [],
         axText: String = "",
         axElements: [AXElement] = [],
+        axOutcome: AXOutcome = .notAttempted,
         entities: [DetectedEntity] = []
     ) {
         self.id = id
@@ -129,6 +160,7 @@ struct CapturedScreenshot {
         self.ocrLines = ocrLines
         self.axText = axText
         self.axElements = axElements
+        self.axOutcome = axOutcome
         self.entities = entities
     }
 }

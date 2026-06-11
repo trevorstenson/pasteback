@@ -13,6 +13,7 @@ final class CaptureCoordinator {
     private let barcodeService = BarcodeService()
     private let writer = PasteboardWriter()
     private let settings = SettingsStore.shared
+    private let appQuirks = AppQuirks.current
     let historyStore = CaptureHistoryStore()
 
     private(set) var lastCapture: CapturedScreenshot?
@@ -72,7 +73,7 @@ final class CaptureCoordinator {
                                        pid: source.pid, url: pageURL)
             }
 
-            let canonicalText = ax.text.isEmpty ? ocrResult.text : ax.text
+            let canonicalText = CapturedScreenshot.canonicalText(ocrText: ocrResult.text, axText: ax.text)
             let technicalEntities = self.technicalRecognizer.entities(
                 in: canonicalText,
                 source: source,
@@ -91,6 +92,7 @@ final class CaptureCoordinator {
                 ocrLines: ocrResult.lines,
                 axText: ax.text,
                 axElements: ax.elements,
+                axOutcome: ax.outcome,
                 entities: entities
             )
             Log.write("""
@@ -99,7 +101,7 @@ final class CaptureCoordinator {
             rect=\(result.rect.map { "\(Int($0.width))x\(Int($0.height))" } ?? "nil") \
             image=\(result.image.width)x\(result.image.height) \
             axTrusted=\(PermissionService.hasAccessibility()) \
-            ocrLines=\(ocrResult.lines.count) axElems=\(ax.elements.count) \
+            ocrLines=\(ocrResult.lines.count) axElems=\(ax.elements.count) axOutcome=\(ax.outcome.logValue) \
             axText=\(ax.text.count)chars ocrText=\(ocrResult.text.count)chars \
             canonicalText=\(canonicalText.count)chars entities=\(entities.count) \
             axLinks=\(ax.entities.count) ownerApps=\(ax.ownerPIDs.count) barcodes=\(barcodeEntities.count) \
@@ -126,28 +128,34 @@ final class CaptureCoordinator {
         let text: String; let elements: [AXElement]
         let entities: [DetectedEntity]; let pageURL: URL?
         let ownerPID: pid_t?; let ownerPIDs: [pid_t]
+        let outcome: AXOutcome
     }
     private func harvestAX(_ result: CaptureResult) -> AXResult {
-        guard let rect = result.rect, PermissionService.hasAccessibility() else {
-            return AXResult(text: "", elements: [], entities: [], pageURL: nil, ownerPID: nil, ownerPIDs: [])
+        guard let rect = result.rect else {
+            return AXResult(text: "", elements: [], entities: [], pageURL: nil,
+                            ownerPID: nil, ownerPIDs: [], outcome: .notAttempted)
         }
-        if shouldSkipAX(result.source) {
+        guard PermissionService.hasAccessibility() else {
+            return AXResult(text: "", elements: [], entities: [], pageURL: nil,
+                            ownerPID: nil, ownerPIDs: [], outcome: .noPermission)
+        }
+        if appQuirks.shouldSkipAX(appName: result.source.appName,
+                                  bundleIdentifier: result.source.bundleIdentifier) {
             Log.write("ax skipped: app=\(result.source.appName ?? "?") bundle=\(result.source.bundleIdentifier ?? "?")")
-            return AXResult(text: "", elements: [], entities: [], pageURL: nil, ownerPID: nil, ownerPIDs: [])
+            let app = result.source.appName ?? "This app"
+            return AXResult(text: "", elements: [], entities: [], pageURL: nil,
+                            ownerPID: nil, ownerPIDs: [],
+                            outcome: .skipped(reason: "\(app) exposes unscoped Accessibility text"))
         }
         // The harvester discovers the app(s) under the selected pixels itself,
         // weighted by coverage; the frontmost app is only a fallback.
         let h = axHarvester.harvest(rect: rect, fallbackPID: result.source.pid)
+        let outcome: AXOutcome = h.elements.isEmpty
+            ? .emptyTree(retried: h.retryCount > 0)
+            : .harvested(elementCount: h.elements.count, retried: h.retryCount > 0)
         return AXResult(text: h.text, elements: h.elements, entities: h.entities,
-                        pageURL: h.pageURL, ownerPID: h.ownerPID, ownerPIDs: h.ownerPIDs)
-    }
-
-    private func shouldSkipAX(_ source: CaptureSource) -> Bool {
-        let app = (source.appName ?? "").lowercased()
-        let bundle = (source.bundleIdentifier ?? "").lowercased()
-        // Warp exposes terminal/chat scrollback as a huge single AX text value and
-        // can stall harvesting. OCR is the correct scoped source for lassoed Warp regions.
-        return app == "warp" || bundle.contains("warp")
+                        pageURL: h.pageURL, ownerPID: h.ownerPID, ownerPIDs: h.ownerPIDs,
+                        outcome: outcome)
     }
 
     func recopy(as representation: Representation) {

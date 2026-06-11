@@ -417,6 +417,8 @@ enum SelfTest {
         let axTable = tableRecognizer.inferFromAX(elements: axGridElements)
         check(axTable?.rowCount == 3 && axTable?.columnCount == 2 && axTable?.source == .ax,
               "TableRecognizer infers a 3×2 table from AX geometry")
+        check(axTable?.isStructural == false,
+              "AX leaf-geometry tables are not marked structural")
         check(axTable?.rows == [["Name", "Qty"], ["Apple", "3"], ["Pear", "12"]],
               "AX-geometry table cells land in the right rows/columns")
 
@@ -432,6 +434,8 @@ enum SelfTest {
         let ocrTable = tableRecognizer.inferFromOCR(lines: ocrGrid)
         check(ocrTable?.rowCount == 3 && ocrTable?.columnCount == 2 && ocrTable?.source == .ocr,
               "TableRecognizer infers a 3×2 table from OCR geometry")
+        check(ocrTable?.isStructural == false,
+              "OCR-geometry tables are not marked structural")
         check(ocrTable?.rows.first == ["A", "B"] && ocrTable?.rows.last == ["E", "F"],
               "OCR-geometry rows are ordered top→bottom after Y flip")
 
@@ -458,7 +462,8 @@ enum SelfTest {
 
         // A single spanning/caption cell should not collapse every column.
         let spanningGrid = [
-            gridEl(0, -30, "Quarterly plan summary across all columns"),
+            AXElement(role: "AXStaticText", text: "Quarterly plan summary across all columns",
+                      url: nil, frame: CGRect(x: 0, y: -30, width: 360, height: 16), sourcePID: 0),
             gridEl(0, 0, "Plan"),  gridEl(200, 0, "Qty"),
             gridEl(0, 30, "Apple"), gridEl(200, 30, "3"),
             gridEl(0, 60, "Pear"),  gridEl(200, 60, "12"),
@@ -526,9 +531,17 @@ enum SelfTest {
         let structuralTableCapture = CapturedScreenshot(
             image: image,
             ocrText: "",
-            tables: [TableData(headers: nil, rows: [["A", "B"], ["C", "D"]], source: .ax)])
+            tables: [TableData(headers: nil, rows: [["A", "B"], ["C", "D"]],
+                               source: .ax, isStructural: true)])
         check(actionIDs(structuralTableCapture).first == "save-csv",
               "AX-structural tables can lead with Save CSV")
+        let axGeometryTableCapture = CapturedScreenshot(
+            image: image,
+            ocrText: "",
+            tables: [TableData(headers: nil, rows: [["A", "B"], ["C", "D"]],
+                               source: .ax, isStructural: false)])
+        check(actionIDs(axGeometryTableCapture).first != "save-csv",
+              "AX-geometry tables do not promote Save CSV ahead of copy actions")
         let tableSummary = CaptureSummary(capture: tableCapture)
         check(tableSummary.tableShape == "2×2" && tableSummary.metadataText.contains("2×2 table"),
               "summary reports the table shape")
@@ -536,7 +549,8 @@ enum SelfTest {
         // Tables survive the history persistence round-trip.
         let tableRecord = CaptureRecord(capture: CapturedScreenshot(
             image: image, ocrText: "",
-            tables: [TableData(headers: ["H"], rows: [["a"], ["b"]], source: .ax)]))
+            tables: [TableData(headers: ["H"], rows: [["a"], ["b"]],
+                               source: .ax, isStructural: true)]))
         let encodedRecord = try? JSONEncoder().encode(tableRecord)
         let decodedRecord = encodedRecord.flatMap { try? JSONDecoder().decode(CaptureRecord.self, from: $0) }
         let roundTrippedTables = decodedRecord?.detectedTables()
@@ -544,6 +558,8 @@ enum SelfTest {
               && roundTrippedTables?.first?.rows == [["a"], ["b"]]
               && roundTrippedTables?.first?.source == .ax,
               "tables round-trip through CaptureRecord")
+        check(roundTrippedTables?.first?.isStructural == true,
+              "table structural confidence round-trips through CaptureRecord")
 
         print(failures.isEmpty ? "\nSELFTEST PASS" : "\nSELFTEST FAIL (\(failures.count))")
         exit(failures.isEmpty ? 0 : 1)

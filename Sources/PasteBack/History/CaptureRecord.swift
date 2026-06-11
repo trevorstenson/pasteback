@@ -27,6 +27,8 @@ struct CaptureRecord: Codable, Identifiable {
         let rows: [[String]]
         /// `"ax"` or `"ocr"`.
         let source: String
+        /// True only when the table shape came from AXTable/AXOutline.
+        let isStructural: Bool?
     }
 
     let id: UUID
@@ -53,14 +55,18 @@ struct CaptureRecord: Codable, Identifiable {
                    source: $0.source == .ax ? "ax" : "ocr")
         }
         tables = capture.tables.map {
-            Table(headers: $0.headers, rows: $0.rows, source: $0.source == .ax ? "ax" : "ocr")
+            Table(headers: $0.headers, rows: $0.rows,
+                  source: $0.source == .ax ? "ax" : "ocr",
+                  isStructural: $0.isStructural)
         }
     }
 
     /// Typed tables for re-hydration.
     func detectedTables() -> [TableData] {
         (tables ?? []).map {
-            TableData(headers: $0.headers, rows: $0.rows, source: $0.source == "ax" ? .ax : .ocr)
+            TableData(headers: $0.headers, rows: $0.rows,
+                      source: $0.source == "ax" ? .ax : .ocr,
+                      isStructural: $0.isStructural ?? false)
         }
     }
 

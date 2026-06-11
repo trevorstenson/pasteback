@@ -19,8 +19,8 @@ struct ActionResolver {
         // strong composite (QR / contact) is present — those are clearly the goal
         // even in a longer selection.
         let isFocused = capture.canonicalText.count <= 80
-        let hasStructuralTable = capture.tables.first?.source == .ax
-        let hasGeometryOnlyTableIntent = capture.tables.first?.source == .ocr
+        let hasStructuralTable = capture.tables.first?.isStructural == true
+        let hasGeometryOnlyTableIntent = capture.tables.first?.isStructural == false
             && intent.contains { $0.id == "save-csv" }
         let focusCanLead = isFocused && !hasGeometryOnlyTableIntent
         let leadsWithStrong = intent.contains {

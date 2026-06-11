@@ -273,7 +273,7 @@ final class AXHarvester {
             row.count >= width ? row : row + Array(repeating: "", count: width - row.count)
         }
         return TableData(headers: headers.isEmpty ? nil : headers,
-                         rows: padded, source: .ax)
+                         rows: padded, source: .ax, isStructural: true)
     }
 
     /// Text of a single cell — its own value, else its descendant leaf text

@@ -59,8 +59,9 @@ enum EntitySource {
 }
 
 /// A tabular region recovered from a capture: rectangular rows, an optional
-/// header, and the source rung (AX ground truth vs OCR geometry). Produced by
-/// `TableRecognizer` (geometry rungs) or `AXHarvester` (structural rung).
+/// header, text source, and whether the structure came from a real AX table
+/// role. Produced by `TableRecognizer` (geometry rungs) or `AXHarvester`
+/// (structural rung).
 struct TableData: Equatable {
     /// Column headers, or `nil` when no header row is distinguishable.
     let headers: [String]?
@@ -68,6 +69,16 @@ struct TableData: Equatable {
     /// same column count.
     let rows: [[String]]
     let source: EntitySource
+    /// True only for AXTable/AXOutline structural harvests. AX leaf geometry
+    /// still has `source == .ax`, but its structure is inferred.
+    let isStructural: Bool
+
+    init(headers: [String]?, rows: [[String]], source: EntitySource, isStructural: Bool = false) {
+        self.headers = headers
+        self.rows = rows
+        self.source = source
+        self.isStructural = isStructural
+    }
 
     var columnCount: Int {
         max(headers?.count ?? 0, rows.map(\.count).max() ?? 0)

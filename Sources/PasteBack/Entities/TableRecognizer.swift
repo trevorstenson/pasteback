@@ -90,7 +90,7 @@ struct TableRecognizer {
         guard lengths[lengths.count / 2] <= 40
                 || (hasStrongAlignment && shortCellRatio >= 0.5) else { return nil }
 
-        return TableData(headers: nil, rows: grid, source: source)
+        return TableData(headers: nil, rows: grid, source: source, isStructural: false)
     }
 
     /// Group cells into visual rows by vertical proximity of their centers.
@@ -131,27 +131,26 @@ struct TableRecognizer {
 
         let rowCount = rowBands.count
         let requiredClearRows = max(1, min(rowCount - 1, Int(ceil(Double(rowCount) * 0.85))))
-        var gutters: [(lo: CGFloat, hi: CGFloat)] = []
+        var clearIntervals: [(lo: CGFloat, hi: CGFloat)] = []
         for pair in zip(edges, edges.dropFirst()) {
             let lo = pair.0
             let hi = pair.1
-            guard hi - lo >= minGutterWidth else { continue }
             let clearRows = rowBands.filter { row in
                 !row.contains { $0.rect.maxX > lo && $0.rect.minX < hi }
             }.count
             if clearRows >= requiredClearRows {
-                gutters.append((lo, hi))
+                clearIntervals.append((lo, hi))
             }
         }
 
-        let mergedGutters = gutters.reduce(into: [(lo: CGFloat, hi: CGFloat)]()) { out, gutter in
-            if var last = out.last, gutter.lo <= last.hi + minGutterWidth {
+        let mergedGutters = clearIntervals.reduce(into: [(lo: CGFloat, hi: CGFloat)]()) { out, gutter in
+            if var last = out.last, gutter.lo <= last.hi {
                 last.hi = max(last.hi, gutter.hi)
                 out[out.count - 1] = last
             } else {
                 out.append(gutter)
             }
-        }
+        }.filter { $0.hi - $0.lo >= minGutterWidth }
         let boundaries = mergedGutters.map { ($0.lo + $0.hi) / 2 }
         var bands: [(lo: CGFloat, hi: CGFloat)] = []
         var lo = minX

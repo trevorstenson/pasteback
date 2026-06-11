@@ -6,10 +6,15 @@ import AppKit
 final class MenuBarController: NSObject, NSMenuDelegate {
 
     var onCapture: (() -> Void)?
+    var onShowLastCapture: (() -> Void)?
     var onRecopy: ((Representation) -> Void)?
+    var onOpenHistory: (() -> Void)?
+    var onClearHistory: (() -> Void)?
     var onOpenSettings: (() -> Void)?
     var onOpenPermissions: (() -> Void)?
     var availableRepresentations: (() -> [Representation])?
+    var hasLastCapture: (() -> Bool)?
+    var hasHistory: (() -> Bool)?
 
     private var statusItem: NSStatusItem!
 
@@ -29,6 +34,14 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         menu.removeAllItems()
         add(menu, "Capture Region", #selector(capture))
 
+        // The escape hatch: a dismissed HUD is never gone.
+        let showLast = NSMenuItem(title: "Show Last Capture", action: nil, keyEquivalent: "")
+        if hasLastCapture?() == true {
+            showLast.action = #selector(showLastCapture)
+            showLast.target = self
+        }
+        menu.addItem(showLast)
+
         let reps = availableRepresentations?() ?? []
         let recopy = NSMenuItem(title: "Re-copy Last Capture As…", action: nil, keyEquivalent: "")
         if reps.isEmpty {
@@ -45,6 +58,15 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         menu.addItem(recopy)
 
         menu.addItem(.separator())
+        add(menu, "History…", #selector(openHistory), "y")
+        let clear = NSMenuItem(title: "Clear History", action: nil, keyEquivalent: "")
+        if hasHistory?() == true {
+            clear.action = #selector(clearHistory)
+            clear.target = self
+        }
+        menu.addItem(clear)
+
+        menu.addItem(.separator())
         add(menu, "Settings…", #selector(openSettings), ",")
         add(menu, "Permissions…", #selector(openPermissions))
         menu.addItem(.separator())
@@ -58,9 +80,12 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     }
 
     @objc private func capture() { onCapture?() }
+    @objc private func showLastCapture() { onShowLastCapture?() }
     @objc private func recopyItem(_ sender: NSMenuItem) {
         if let rep = sender.representedObject as? Representation { onRecopy?(rep) }
     }
+    @objc private func openHistory() { onOpenHistory?() }
+    @objc private func clearHistory() { onClearHistory?() }
     @objc private func openSettings() { onOpenSettings?() }
     @objc private func openPermissions() { onOpenPermissions?() }
     @objc private func quit() { NSApplication.shared.terminate(nil) }

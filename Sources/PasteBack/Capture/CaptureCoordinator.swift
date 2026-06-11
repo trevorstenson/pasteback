@@ -13,8 +13,12 @@ final class CaptureCoordinator {
     private let barcodeService = BarcodeService()
     private let writer = PasteboardWriter()
     private let settings = SettingsStore.shared
+    let historyStore = CaptureHistoryStore()
 
     private(set) var lastCapture: CapturedScreenshot?
+    /// The representation we last wrote to the clipboard (capture or re-copy);
+    /// lets a recalled HUD highlight the chip that matches the clipboard.
+    private(set) var lastWrittenRepresentation: Representation?
 
     /// Fired on the main thread after a successful capture, for the HUD.
     var onCaptured: ((CapturedScreenshot) -> Void)?
@@ -106,8 +110,12 @@ final class CaptureCoordinator {
 
             DispatchQueue.main.async {
                 self.lastCapture = screenshot
+                self.lastWrittenRepresentation = primary
                 self.writer.write(screenshot, primary: primary)
                 self.onCaptured?(screenshot)
+                // History append runs on the store's own utility queue — the
+                // capture path never blocks on disk I/O.
+                self.historyStore.append(screenshot)
             }
         }
     }
@@ -144,6 +152,15 @@ final class CaptureCoordinator {
 
     func recopy(as representation: Representation) {
         guard let lastCapture else { return }
+        lastWrittenRepresentation = representation
         writer.write(lastCapture, primary: representation)
+    }
+
+    /// Makes a re-hydrated history capture the current "last capture" (so the
+    /// HUD, re-copy menu, and recall all operate on it) without touching the
+    /// clipboard.
+    func adopt(_ capture: CapturedScreenshot) {
+        lastCapture = capture
+        lastWrittenRepresentation = nil
     }
 }

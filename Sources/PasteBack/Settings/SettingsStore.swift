@@ -25,6 +25,13 @@ final class SettingsStore: ObservableObject {
         static let hotkeyModifiers = "hotkeyModifiers"
         static let settingsHotkeyKeyCode = "settingsHotkeyKeyCode"
         static let settingsHotkeyModifiers = "settingsHotkeyModifiers"
+        static let recallHotkeyEnabled = "recallHotkeyEnabled"
+        static let recallHotkeyKeyCode = "recallHotkeyKeyCode"
+        static let recallHotkeyModifiers = "recallHotkeyModifiers"
+        static let historyHotkeyEnabled = "historyHotkeyEnabled"
+        static let historyHotkeyKeyCode = "historyHotkeyKeyCode"
+        static let historyHotkeyModifiers = "historyHotkeyModifiers"
+        static let keepHistory = "keepHistory"
     }
 
     static let didChange = Notification.Name("SettingsStore.didChange")
@@ -55,6 +62,29 @@ final class SettingsStore: ObservableObject {
             notify()
         }
     }
+    @Published var recallHotkeyEnabled: Bool {
+        didSet { defaults.set(recallHotkeyEnabled, forKey: Key.recallHotkeyEnabled); notify() }
+    }
+    @Published var recallHotkey: HotkeyManager.Hotkey {
+        didSet {
+            defaults.set(Int(recallHotkey.keyCode), forKey: Key.recallHotkeyKeyCode)
+            defaults.set(Int(recallHotkey.modifiers), forKey: Key.recallHotkeyModifiers)
+            notify()
+        }
+    }
+    @Published var historyHotkeyEnabled: Bool {
+        didSet { defaults.set(historyHotkeyEnabled, forKey: Key.historyHotkeyEnabled); notify() }
+    }
+    @Published var historyHotkey: HotkeyManager.Hotkey {
+        didSet {
+            defaults.set(Int(historyHotkey.keyCode), forKey: Key.historyHotkeyKeyCode)
+            defaults.set(Int(historyHotkey.modifiers), forKey: Key.historyHotkeyModifiers)
+            notify()
+        }
+    }
+    @Published var keepHistory: Bool {
+        didSet { defaults.set(keepHistory, forKey: Key.keepHistory); notify() }
+    }
 
     private init() {
         defaults.register(defaults: [
@@ -65,7 +95,16 @@ final class SettingsStore: ObservableObject {
             Key.hotkeyKeyCode: Int(kVK_ANSI_C),
             Key.hotkeyModifiers: Int(controlKey | optionKey | cmdKey),
             Key.settingsHotkeyKeyCode: Int(kVK_ANSI_A),
-            Key.settingsHotkeyModifiers: Int(controlKey | optionKey | cmdKey)
+            Key.settingsHotkeyModifiers: Int(controlKey | optionKey | cmdKey),
+            // Recall: ⌃⌥⌘V — left-hand reachable, mnemonic "view".
+            Key.recallHotkeyEnabled: true,
+            Key.recallHotkeyKeyCode: Int(kVK_ANSI_V),
+            Key.recallHotkeyModifiers: Int(controlKey | optionKey | cmdKey),
+            // History window: ⌃⌥⌘Y (the conventional "history" key).
+            Key.historyHotkeyEnabled: true,
+            Key.historyHotkeyKeyCode: Int(kVK_ANSI_Y),
+            Key.historyHotkeyModifiers: Int(controlKey | optionKey | cmdKey),
+            Key.keepHistory: true
         ])
         defaultRepresentation = Representation(storageKey: defaults.string(forKey: Key.defaultRep) ?? "") ?? .image
         autoDismissSeconds = defaults.double(forKey: Key.autoDismiss)
@@ -78,6 +117,15 @@ final class SettingsStore: ObservableObject {
         settingsHotkey = HotkeyManager.Hotkey(
             keyCode: UInt32(defaults.integer(forKey: Key.settingsHotkeyKeyCode)),
             modifiers: UInt32(defaults.integer(forKey: Key.settingsHotkeyModifiers)))
+        recallHotkeyEnabled = defaults.bool(forKey: Key.recallHotkeyEnabled)
+        recallHotkey = HotkeyManager.Hotkey(
+            keyCode: UInt32(defaults.integer(forKey: Key.recallHotkeyKeyCode)),
+            modifiers: UInt32(defaults.integer(forKey: Key.recallHotkeyModifiers)))
+        historyHotkeyEnabled = defaults.bool(forKey: Key.historyHotkeyEnabled)
+        historyHotkey = HotkeyManager.Hotkey(
+            keyCode: UInt32(defaults.integer(forKey: Key.historyHotkeyKeyCode)),
+            modifiers: UInt32(defaults.integer(forKey: Key.historyHotkeyModifiers)))
+        keepHistory = defaults.bool(forKey: Key.keepHistory)
     }
 
     private func notify() { NotificationCenter.default.post(name: Self.didChange, object: self) }

@@ -33,6 +33,16 @@ struct SettingsView: View {
                 LabeledContent("Record settings shortcut") {
                     HotkeyRecorder(hotkey: $settings.settingsHotkey).frame(width: 140, height: 24)
                 }
+                Toggle("Recall last capture with a shortcut", isOn: $settings.recallHotkeyEnabled)
+                LabeledContent("Record recall shortcut") {
+                    HotkeyRecorder(hotkey: $settings.recallHotkey).frame(width: 140, height: 24)
+                }
+                .disabled(!settings.recallHotkeyEnabled)
+                Toggle("Open history with a shortcut", isOn: $settings.historyHotkeyEnabled)
+                LabeledContent("Record history shortcut") {
+                    HotkeyRecorder(hotkey: $settings.historyHotkey).frame(width: 140, height: 24)
+                }
+                .disabled(!settings.historyHotkeyEnabled)
                 Picker("Capture mode", selection: $settings.captureMode) {
                     Text("In-app overlay (enables link/text recovery)").tag(SettingsStore.CaptureMode.native)
                     Text("System screenshot tool (OCR only)").tag(SettingsStore.CaptureMode.shellOut)
@@ -53,8 +63,19 @@ struct SettingsView: View {
                     Slider(value: $settings.autoDismissSeconds, in: 3...30, step: 1)
                 }
             }
+            Section("History") {
+                Toggle("Keep capture history", isOn: $settings.keepHistory)
+                Text("Stores your last captures locally on this Mac so you can recover them. Nothing is uploaded; only Paste-Back captures are recorded, never your clipboard.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Button("Clear History…") {
+                    NotificationCenter.default.post(name: Self.clearHistoryRequested, object: nil)
+                }
+            }
         }
         .formStyle(.grouped)
-        .frame(width: 500, height: 460)
+        .frame(width: 500, height: 560)
     }
+
+    static let clearHistoryRequested = Notification.Name("SettingsView.clearHistoryRequested")
 }

@@ -113,6 +113,12 @@ struct ActionResolver {
         if let idx = reps.firstIndex(of: .codeBlock) {
             reps.remove(at: idx); reps.insert(.codeBlock, at: 0)
         }
+        // The universal revert: Image is always offered and always LAST in the
+        // copy group, regardless of ranking — a predictable position builds
+        // muscle memory ("the last chip is always the safe one").
+        if let idx = reps.firstIndex(of: .image) {
+            reps.remove(at: idx); reps.append(.image)
+        }
         return reps.map { rep in
             CaptureAction(id: "rep-\(rep.storageKey)", title: rep.title,
                           symbol: rep.symbolName, isStateful: true) { copy(rep) }

@@ -6,6 +6,7 @@ import SwiftUI
 final class WindowPresenter {
     private var settingsWindow: NSWindow?
     private var permissionsWindow: NSWindow?
+    private var historyWindow: NSWindow?
 
     func showSettings() {
         if settingsWindow == nil {
@@ -25,6 +26,18 @@ final class WindowPresenter {
             permissionsWindow = window
         }
         present(permissionsWindow)
+    }
+
+    /// History gets a FRESH root view per show so the list reloads (`onAppear`)
+    /// every time the window opens.
+    func showHistory<Content: View>(@ViewBuilder content: () -> Content) {
+        if let historyWindow {
+            historyWindow.contentViewController = NSHostingController(rootView: content())
+        } else {
+            historyWindow = makeWindow(title: "Capture History", content: content())
+            historyWindow?.isReleasedWhenClosed = false
+        }
+        present(historyWindow)
     }
 
     private func makeWindow<Content: View>(title: String, content: Content) -> NSWindow {

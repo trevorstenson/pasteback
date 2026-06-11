@@ -254,6 +254,84 @@ enum SelfTest {
 
         let resolver = ActionResolver()
         func actionIDs(_ c: CapturedScreenshot) -> [String] { resolver.resolve(c) { _ in }.map(\.id) }
+
+        // --- Stage 2: Image chip is the universal revert (always present, always last) ---
+        func copyChipIDs(_ c: CapturedScreenshot) -> [String] {
+            resolver.resolve(c) { _ in }.filter(\.isStateful).map(\.id)
+        }
+        check(copyChipIDs(capture).last == "rep-image",
+              "Image chip is last in the copy group (URL capture)")
+        let pinnedCodeIDs = copyChipIDs(codeCapture)
+        check(pinnedCodeIDs.first == "rep-codeBlock" && pinnedCodeIDs.last == "rep-image",
+              "Image chip stays last even when code leads the copies")
+        check(copyChipIDs(CapturedScreenshot(image: image, ocrText: "")) == ["rep-image"],
+              "Image chip is offered even for textless captures")
+
+        // --- Stage 3: capture history round-trip + eviction ---
+        let historyDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("pasteback-selftest-\(UUID().uuidString)", isDirectory: true)
+        let history = CaptureHistoryStore(baseURL: historyDir, isEnabled: { true })
+        let histCapture = CapturedScreenshot(
+            timestamp: Date(timeIntervalSinceNow: -100),
+            image: image,
+            source: CaptureSource(appName: "Arc", bundleIdentifier: "company.thebrowser.Browser",
+                                  pid: 42, url: URL(string: "https://github.com/x/y/pull/1")),
+            ocrText: "ocr text",
+            axText: "ax ground truth",
+            entities: [
+                DetectedEntity(type: .url, value: "https://example.com", sourceText: "example",
+                               source: .ax),
+                DetectedEntity(type: .ticketID(system: "JIRA"), value: "ABC-123", sourceText: "ABC-123"),
+                DetectedEntity(type: .codeBlock(language: "swift"), value: "let x = 1",
+                               sourceText: "let x = 1"),
+                DetectedEntity(type: .barcode(symbology: "QR"), value: "hello", sourceText: "hello"),
+            ])
+        history.append(histCapture)
+        history.waitForPendingWrites()
+        let storedRecords = history.records()
+        check(storedRecords.count == 1, "history persists a capture record")
+        if let record = storedRecords.first {
+            check(FileManager.default.fileExists(atPath: history.imageURL(for: record.id).path)
+                  && FileManager.default.fileExists(atPath: history.thumbnailURL(for: record.id).path),
+                  "history writes capture.png + thumb.png")
+            let rehydrated = history.rehydrate(record)
+            check(rehydrated?.canonicalText == "ax ground truth",
+                  "rehydrated capture keeps AX text")
+            check(rehydrated?.entities.count == 4
+                  && rehydrated?.entities.first?.source == .ax,
+                  "entities survive the round-trip with their source")
+            check(rehydrated?.entities.contains { $0.type == .ticketID(system: "JIRA") } == true
+                  && rehydrated?.entities.contains { $0.type == .codeBlock(language: "swift") } == true
+                  && rehydrated?.entities.contains { $0.type == .barcode(symbology: "QR") } == true,
+                  "associated-value entity kinds round-trip")
+            check(rehydrated?.source.url?.absoluteString == "https://github.com/x/y/pull/1"
+                  && rehydrated?.source.appName == "Arc",
+                  "provenance survives the round-trip")
+            let recordReps = history.availableRepresentations(for: record)
+            check(recordReps.contains(.image) && recordReps.contains(.plainText)
+                  && recordReps.contains(.firstURL),
+                  "representations are computable from a record")
+            check(record.searchableText.localizedCaseInsensitiveContains("ABC-123"),
+                  "history search text covers entity values")
+        }
+        history.maxRecords = 3
+        for i in 0..<3 {
+            history.append(CapturedScreenshot(
+                timestamp: Date(timeIntervalSinceNow: Double(i)),
+                image: image, ocrText: "filler \(i)"))
+        }
+        history.waitForPendingWrites()
+        let afterEvict = history.records()
+        check(afterEvict.count == 3, "history enforces the record cap")
+        check(!afterEvict.contains { $0.id == histCapture.id },
+              "history evicts the oldest capture first")
+        let disabledHistory = CaptureHistoryStore(baseURL: historyDir, isEnabled: { false })
+        disabledHistory.append(histCapture)
+        disabledHistory.waitForPendingWrites()
+        check(disabledHistory.records().count == 3, "history opt-out makes append a no-op")
+        history.clear()
+        check(history.records().isEmpty, "Clear History empties the store")
+        try? FileManager.default.removeItem(at: historyDir)
         let addrCapture = CapturedScreenshot(
             image: image, ocrText: "1 Infinite Loop, Cupertino CA",
             entities: [DetectedEntity(type: .address, value: "1 Infinite Loop, Cupertino CA",
